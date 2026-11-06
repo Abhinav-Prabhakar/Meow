@@ -6,16 +6,17 @@ A beginner-first command line tool that saves, shares, and protects your work �
 
 | | |
 |---|---|
-| **Status** | Draft 1 — for review. No architecture or code decisions yet. |
+| **Status** | Settled — decisions in §21 are final; building v1 |
 | **Date** | 6 November 2026 |
 | **Platforms** | macOS, Linux, Windows (first-class) |
 | **Language** | Rust (single static binary, no runtime) |
+| **Requires** | Git 2.30+ installed and on `PATH` (checked by `meow doctor`) |
 | **Compatibility** | Standard `.git` repositories. Any Git host. Interoperable in both directions. |
 | **Audience** | People who have never used Git, or tried and quietly gave up |
 
 > This document specifies **behavior and product decisions**, not architecture. References to Git commands describe the compatibility contract — what must be true in the repository — not how Meow will be implemented.
 
-**How to read this:** §0–§3 make the case; §4–§5 define the model and vocabulary; §6–§11 specify every command; §12–§14 cover teaching, output, and failure; §15–§21 cover Git compatibility, non-goals, scope, metrics, risks, and open questions. The appendices hold the cheat sheet, a full transcript, a comparison, a feature checklist, and the questions to prototype before writing code.
+**How to read this:** §0–§3 make the case; §4–§5 define the model and vocabulary; §6–§11 specify every command; §12–§14 cover teaching, output, and failure; §15–§21 cover Git compatibility, non-goals, scope, metrics, risks, and the decisions that were settled before build. The appendices hold the cheat sheet, a full transcript, a comparison, a feature checklist, and the questions to prototype before writing code.
 
 ---
 
@@ -141,7 +142,7 @@ These are ranked. When two conflict, the higher one wins.
    A Meow repository is a Git repository. No proprietary format, no lock-in, no "export to Git". If Meow disappeared tomorrow, `git` would still work.
 
 7. **Quietly beautiful.**
-   Output is calm, aligned, and readable at 80 columns. Color carries meaning and is never the only signal. No emoji soup, no ASCII fireworks, no cuteness in error messages. One small cat, in one or two places, as a signature.
+   Output is calm, aligned, and readable at 80 columns. A small, consistent emoji vocabulary marks status, and color carries meaning without ever being the only signal. No emoji soup, no ASCII fireworks, no cuteness in error messages. One small cat, in one or two places, as a signature.
 
 8. **Teach by showing.**
    Every action can be explained. `--explain` reveals the Git underneath. `meow help --git` maps every Meow word to its Git equivalent. The goal is for users to outgrow us, not depend on us.
@@ -293,7 +294,7 @@ A command name must be:
 
 An unknown command gets a fuzzy match, never a bare "unrecognized command": `meow sav` → "Did you mean `meow save`?" followed by the one-line usage.
 
-We accept a small set of Git words as **hidden aliases** so muscle memory does not punish migrants: `init` → `new`, `clone` → `get`, `commit` → `save`, `push` → `send`, `pull` → `get`, `status` → `meow`, `log` → `history`, `diff` → `changes`, `switch` and `checkout` → `branch`. They never appear in help. This is a bridge, not a second vocabulary. *(Decision pending — see §21.)*
+We accept a small set of Git words as **hidden aliases** so muscle memory does not punish migrants: `init` → `new`, `clone` → `get`, `commit` → `save`, `push` → `send`, `pull` → `get`, `status` → `meow`, `log` → `history`, `diff` → `changes`, `switch` and `checkout` → `branch`. They never appear in help. This is a bridge, not a second vocabulary. *(Decided — see §21.)*
 
 ### 6.6 The learning ladder
 
@@ -362,7 +363,7 @@ There is no staging area. The default is "save everything I can see", which is w
 ```
   Saving 3 changes…
 
-  ✓ Saved "Add project photos"                  main · just now
+  ✅ Saved "Add project photos"                  main · just now
 
   2 saves are ready to send.
   Next  meow send
@@ -408,7 +409,7 @@ If there is nothing to save, it is not an error:
 ```
   Sending 2 saves to github.com/ana/portfolio…
 
-  ✓ Sent. Your team can see your work now.
+  ✅ Sent. Your team can see your work now.
 
   main is up to date.
 ```
@@ -456,7 +457,7 @@ One word, two obvious meanings, disambiguated by context. This is deliberately t
 ```
   Getting the latest from github.com/ana/portfolio…
 
-  ✓ Got 3 new saves.
+  ✅ Got 3 new saves.
     Last one: "Fix the mobile menu" — Sam · 2 hours ago
     2 files changed in src/
 
@@ -608,7 +609,7 @@ Undoing a combine that has already been sent is not offered in v1: reversing a s
 
   > 1
 
-  ✓ Undone. Your work is still here — it's just not saved anymore.
+  ✅ Undone. Your work is still here — it's just not saved anymore.
   Changed your mind?  meow redo
   Next  meow save "A better note"
 ```
@@ -779,7 +780,7 @@ A conflict is the moment a beginner decides whether they can do this. Most tools
 **On conflict:**
 
 ```
-  ✗ 2 files need your help
+  ❌ 2 files need your help
 
   You and Sam changed the same parts of these files.
   Nothing is lost. Let's go through them one at a time.
@@ -853,9 +854,9 @@ meow new                  # start tracking the folder I'm in
 ```
   Starting ~/Projects/portfolio
 
-  ✓ Project started
-  ✓ Added a .gitignore for a Node project (node_modules, .env, dist)
-  ✓ Wrote a starter README.md
+  ✅ Project started
+  ✅ Added a .gitignore for a Node project (node_modules, .env, dist)
+  ✅ Wrote a starter README.md
 
   Next
     meow save "First save"       save the starter files
@@ -886,7 +887,7 @@ meow ignore --list
 **Already-committed secret warning:**
 
 ```
-  ! .env is already in your project's history
+  ⚠️ .env is already in your project's history
 
   Ignoring it now stops future saves, but older saves still contain it.
   If it holds a password or key, change that password now.
@@ -951,20 +952,30 @@ Authentication is the second-most-common beginner wall after conflicts. Meow's a
   An online copy lets you back up your work and share it.
   Where should it live?
 
-    1  GitHub          (recommended)
+    1  GitHub                     (recommended, uses your gh login)
     2  I already made one — paste the link
     3  Not now
 
   > 1
 
-  Name: ana/portfolio
-  Private?  [y/N]
+  Repository name    portfolio
+  Description        My personal site
+  Visibility         ● Public   ○ Private
 
-  ✓ Created github.com/ana/portfolio
-  ✓ Sent 3 saves
+  ✅ Created github.com/ana/portfolio
+  ✅ Sent 3 saves
 ```
 
-Creating a repository requires a host API and a registered OAuth application. That is a product dependency, not just an implementation detail: it needs an app registration, a privacy policy, and a support story. **v1 ships with GitHub creation and manual linking; GitLab and Codeberg creation are post-1.0.** If creation is unavailable, the flow degrades to precise manual instructions with a pre-filled repository name — never a dead end.
+Meow prefers the installed **`gh` CLI** for this, because it means the user already has a working login and Meow never has to ask for a token. The flow is deliberately close to `gh repo create`'s own interactive mode: name (pre-filled from the folder name), optional description, visibility, and a confirmation that shows the exact repository URL before anything is created. Under the hood Meow runs `gh repo create <name> --source . --remote origin --push`, so the result is an ordinary repository with an ordinary remote.
+
+The fallback ladder, in order:
+
+1. **`gh` installed and signed in** — full interactive creation.
+2. **`gh` installed but signed out** — one line explaining it, then `gh auth login` offered as the next step, with the manual path always available.
+3. **No `gh`** — ask for a repository URL the user already created, validate it, add it as the home, and send.
+4. **No network or no account** — show precise manual instructions with the repository name pre-filled. Never a dead end, and never a blocking error: the work stays saved locally.
+
+**v1 ships with GitHub creation and manual linking; GitLab and Codeberg creation are post-1.0.** Any host still works for `send` and `get` when the user supplies a URL.
 
 ### 11.4 What we do not do (yet)
 
@@ -1052,10 +1063,10 @@ A health check that sounds like a person, not a diagnostic dump.
 ```
   Checking your setup…
 
-  ✓ Git 2.45 found
-  ✓ Name and email set (Ana Lima)
-  ✓ github.com is reachable
-  ! Your login for github.com has expired
+  ✅ Git 2.45 found
+  ✅ Name and email set (Ana Lima)
+  ✅ github.com is reachable
+  ⚠️ Your login for github.com has expired
 
   Fix it:  meow doctor --fix
 ```
@@ -1094,13 +1105,16 @@ Rules:
 - Diff additions and removals always carry a `+` or `-` prefix, so they read correctly without color.
 - Maximum three colors on one line.
 
-**Symbols.** One cell wide, consistent meaning, with an ASCII fallback.
+**Symbols and emoji.** A small, consistent vocabulary, with a stable ASCII fallback.
 
-| Unicode | Meaning | ASCII fallback |
+| Emoji | Meaning | ASCII fallback |
 |---|---|---|
-| `✓` | done, safe, up to date | `[ok]` |
-| `✗` | failed, cannot proceed | `[x]` |
-| `!` | needs attention | `[!]` |
+| `🐱` | brand, first run, help | `=^..^=` |
+| `✅` | done, safe, up to date | `[ok]` |
+| `⚠️` | needs attention | `[!]` |
+| `❌` | failed, cannot proceed | `[x]` |
+| `🌿` | branch | `br` |
+| `☁️` | home | `home` |
 | `●` | current position | `*` |
 | `○` | other position | `o` |
 | `↑` | saves waiting to be sent | `^` |
@@ -1109,7 +1123,7 @@ Rules:
 | `·` | separator | `-` |
 | `…` | working, truncated | `...` |
 
-No emoji. They break alignment, render inconsistently across terminals, and read as unserious in a tool people trust with their work.
+Emojis are used only where they carry meaning: status lines, the header, and the branch/home labels. Never inside diffs, file lists, or tables. One emoji per line at most. Each has a text fallback, and `--ascii` uses the fallbacks even on a Unicode terminal.
 
 **Layout.**
 
@@ -1178,7 +1192,7 @@ No emoji. They break alignment, render inconsistently across terminals, and read
 ```
   Saving 3 changes…
 
-  ✓ Saved "Add project photos"                  main · just now
+  ✅ Saved "Add project photos"                  main · just now
 
   2 saves are ready to send.
   Next  meow send
@@ -1189,7 +1203,7 @@ No emoji. They break alignment, render inconsistently across terminals, and read
 ```
   Sending 2 saves to github.com/ana/portfolio…
 
-  ✓ Sent. Your team can see your work now.
+  ✅ Sent. Your team can see your work now.
 
   main is up to date.
 ```
@@ -1199,7 +1213,7 @@ No emoji. They break alignment, render inconsistently across terminals, and read
 ```
   Getting the latest from github.com/ana/portfolio…
 
-  ✓ Got 3 new saves.
+  ✅ Got 3 new saves.
     Last one: "Fix the mobile menu" — Sam · 2 hours ago
     2 files changed in src/
 
@@ -1276,10 +1290,10 @@ No emoji. They break alignment, render inconsistently across terminals, and read
 ```
   Checking your setup…
 
-  ✓ Git 2.45 found
-  ✓ Name and email set (Ana Lima)
-  ✓ github.com is reachable
-  ! Your login for github.com has expired
+  ✅ Git 2.45 found
+  ✅ Name and email set (Ana Lima)
+  ✅ github.com is reachable
+  ⚠️ Your login for github.com has expired
 
   Fix it:  meow doctor --fix
 ```
@@ -1305,7 +1319,7 @@ One cat. Here, and optionally at the top of `meow help`. Nowhere else.
 **A failed action**
 
 ```
-  ✗ Can't send yet
+  ❌ Can't send yet
 
   Someone shared new work after your last get.
   Your saves are safe — nothing was lost.
@@ -1519,7 +1533,7 @@ Saying no is the product. These are explicit non-goals for v1, with the reason.
 
 ### 17.1 Distribution
 
-- **One binary, no runtime.** Rust, statically linked where practical, no Node/Python/Ruby dependency. The only external requirement is Git itself — whether Meow requires a separate Git install or bundles one is an open question in §21. `meow doctor` checks it either way.
+- **One binary, no runtime.** Rust, statically linked where practical, no Node/Python/Ruby dependency. **Git 2.30+ is required and expected on `PATH`** (§21); `meow doctor` checks it and prints one platform-specific install instruction when it is missing. `gh` is optional and only used for automatic repository creation.
 - **Install paths:** Homebrew (macOS/Linux), `winget`/Scoop (Windows), `cargo install meow`, a signed installer for macOS and Windows, and a `curl | sh` script for the brave. Every path pinned to a checksum.
 - **Architectures:** macOS arm64/x86_64, Linux x86_64/arm64 (glibc and musl), Windows x86_64/arm64.
 - **Shell completions** for bash, zsh, fish, and PowerShell, installed by default. Completions only offer the daily commands; the rest appear after typing `meow help`.
@@ -1651,7 +1665,7 @@ These are measured in supervised usability sessions and the beta program (with c
 | **Hidden behavior surprises** — automatic set-aside or auto-merge feels like magic | Loss of trust | Always announce what happened in one line; show it in `recover`; allow undo |
 | **Snapshots contain secrets** the user chose not to commit | Local secret exposure | Snapshots live under `.git/meow` with owner-only permissions, are never pushed, are pruned, and can be purged with `meow recover --purge` |
 | **Name collision or trademark** — `meow` is a common word and an existing npm package | Brand and distribution problems | Clear the name in package registries and trademark databases before launch; keep a fallback name shortlist |
-| **OAuth app burden** — GitHub creation needs an app, privacy policy, and support | Blocks the "send with no setup" promise | Ship manual linking as a first-class fallback; isolate the API behind a host adapter |
+| **Publishing depends on a host identity** — creating repositories needs an authenticated account | Blocks the "send with no setup" promise | Reuse the installed `gh` CLI's authentication instead of registering an app; keep pasted-URL linking as a first-class fallback |
 | **Host API changes** | Publishing breaks | Adapter layer, versioned API calls, `doctor` detects and explains; never block local work |
 | **Performance on large repositories** | The tool feels worse than Git | Stream status, avoid full-repo scans on every run, benchmark 100k-file repos from v0.1, cap expensive checks |
 | **Windows terminal variance** | Broken output on a large beginner audience | Test Windows Terminal, PowerShell, cmd, and VS Code terminal; `--plain` and `--ascii` everywhere; no reliance on cursor addressing |
@@ -1663,23 +1677,30 @@ These are measured in supervised usability sessions and the beta program (with c
 
 ---
 
-## 21. Open questions
+## 21. Decisions
 
-Decisions that need an answer before build starts. Each has a recommendation.
+All questions below were settled before build started. They are decisions, not options, and later sections are written to match them.
 
-1. **Is the name clear?** `meow` is an existing npm package name and a common word. Check Homebrew, crates.io, winget, and trademark databases. *Recommendation: verify now; keep `meow` for the command if available, with a distinctive package name (`meow-cli`) and a wordmark.*
-2. **How much cat?** *Recommendation: one ASCII cat on first run and at the top of `meow help`, nowhere else. No cat in errors, conflicts, or status.*
-3. **GitHub repository creation in v1?** It is the single biggest "wow" moment, but it adds an OAuth app, a privacy policy, and a support surface. *Recommendation: yes for GitHub, with a fully first-class manual fallback; defer GitLab/Codeberg.*
-4. **Hidden Git aliases?** Accepting `init`, `clone`, `commit`, `push`, `pull`, `status`, `log`, `diff`, `switch`, and `checkout` helps migrants and costs little. *Recommendation: yes, undocumented in help, listed in `meow help --git`.*
-5. **`meow learn` in v1?** It is a differentiator and a support-cost reducer, but it is a second product to build. *Recommendation: v1 if the schedule allows, otherwise v1.1; do not ship a half-built tutorial.*
-6. **Undo of sent saves?** *Recommendation: never rewrite shared history; offer a reversing save with explicit confirmation.*
-7. **Automatic set-aside on `get`?** *Recommendation: yes, announced, with a safety snapshot and a guided restore.*
-8. **Windows first-class at launch?** It is a large beginner audience with the most terminal variance. *Recommendation: yes, but treat its testing as a milestone gate, not an afterthought.*
-9. **Default branch name?** *Recommendation: respect `init.defaultBranch` if set, otherwise `main`.*
-10. **`save --only` in v1?** *Recommendation: ship it but keep it out of default help; it is the escape hatch for the no-staging rule.*
-11. **License and openness?** *Recommendation: dual MIT/Apache-2.0, public repository from v0.1, contribution guide written for non-Git-experts (using Meow).*
-12. **Self-update?** *Recommendation: none in v1; package managers only.*
-13. **Does Meow require Git to be installed?** Requiring it guarantees exact behavior for hooks, signing, credential helpers, and configuration. But it puts an install step in front of the exact audience that may not have Git. Bundling or embedding Git raises size, licensing, and update questions. *Recommendation: require Git for v1, detect it on first run, and make installation a single guided step; revisit bundling for Windows after launch.*
+| # | Question | Decision |
+|---|---|---|
+| 1 | Name | **`meow`** for the command. The crate is `meow-cli` and the repository is `Meow`; the wordmark is the lowercase cat face. No fallback name is needed. |
+| 2 | How much cat | 🐱 one cat on first run and at the top of `meow help`, nowhere else. Emojis are part of the default look (see §13.1); every one has an ASCII fallback. |
+| 3 | GitHub creation in v1 | **Yes**, and it is the primary publishing path. Meow prefers the installed **`gh` CLI** and reproduces its interactive repository-creation flow (name, description, visibility, confirm). If `gh` is missing or not signed in, Meow falls back to a pasted URL, then to manual instructions. GitLab and Codeberg creation are post-1.0. |
+| 4 | Hidden Git aliases | **Yes.** `init`, `clone`, `commit`, `push`, `pull`, `status`, `log`, `diff`, `switch`, `checkout`, `combine`. Hidden from help, listed in `meow help --git`. |
+| 5 | `meow learn` | **In v1**, not deferred. A real tutorial, not a stub. |
+| 6 | Undo of sent saves | **Never rewrite shared history.** Offer a reversing save with explicit confirmation. |
+| 7 | Automatic set-aside on `get` | **Yes**, announced in one line, protected by a safety snapshot, and restorable from `meow recover`. |
+| 8 | Windows | **First-class** at launch, in both code and docs. Its testing is a milestone gate. |
+| 9 | Default branch | Respect `init.defaultBranch` when set; otherwise **`main`**. |
+| 10 | `save --only` | **Ship it**, hidden from default help. It is the escape hatch that keeps the no-staging rule honest. |
+| 11 | License and openness | **MIT**, public repository from the first commit, contribution guide written for people who have never opened a pull request. |
+| 12 | Self-update | **None.** Package managers only. `meow version` explains how to upgrade. |
+| 13 | Git dependency | **Git is required**, version 2.30 or newer, found on `PATH`. `meow doctor` checks it and gives one install instruction per platform. |
+
+Two consequences worth stating explicitly, because they shape the implementation:
+
+- **`gh` is a soft dependency, not a hard one.** Everything except automatic repository creation works without it. When it is present and authenticated, Meow uses its token and its flow rather than asking the user for anything.
+- **Emojis never replace words.** A status line reads `✅ Saved` on a Unicode terminal and `[ok] Saved` with `--ascii`; no meaning is carried by the glyph alone.
 
 ---
 
@@ -1728,9 +1749,9 @@ A complete first project, including the two things that usually break people.
 ```
   ~ $ meow new portfolio
   Starting ~/Projects/portfolio
-  ✓ Project started
-  ✓ Added a .gitignore for a Node project
-  ✓ Wrote a starter README.md
+  ✅ Project started
+  ✅ Added a .gitignore for a Node project
+  ✅ Wrote a starter README.md
 
   Next  meow save "First save"   save the starter files
         meow send                put it online
@@ -1746,7 +1767,7 @@ A complete first project, including the two things that usually break people.
 
   ~/Projects/portfolio $ meow save "Add project photos"
   Saving 3 changes…
-  ✓ Saved "Add project photos"                  main · just now
+  ✅ Saved "Add project photos"                  main · just now
 
   ~/Projects/portfolio $ meow send
   This project isn't online yet.
@@ -1757,8 +1778,8 @@ A complete first project, including the two things that usually break people.
   > 1
   Name: ana/portfolio
   Private?  [y/N] n
-  ✓ Created github.com/ana/portfolio
-  ✓ Sent 3 saves
+  ✅ Created github.com/ana/portfolio
+  ✅ Sent 3 saves
 ```
 
 Later that week, a teammate sends a change:
@@ -1766,7 +1787,7 @@ Later that week, a teammate sends a change:
 ```
   ~/Projects/portfolio $ meow get
   Getting the latest from github.com/ana/portfolio…
-  ✓ Got 2 new saves.
+  ✅ Got 2 new saves.
     Last one: "Fix the mobile menu" — Sam · 2 hours ago
     2 files changed in src/
 ```
@@ -1776,7 +1797,7 @@ A conflict:
 ```
   ~/Projects/portfolio $ meow get
   Getting the latest from github.com/ana/portfolio…
-  ! 2 files need your help
+  ⚠️ 2 files need your help
   You and Sam changed the same parts. Nothing is lost.
   [s] start   [x] cancel
 
@@ -1793,7 +1814,7 @@ A conflict:
 
   File 2 of 2 · src/styles.css
   ...
-  ✓ Conflict fixed. Everything is combined.
+  ✅ Conflict fixed. Everything is combined.
   Next  meow send
 ```
 
@@ -1803,7 +1824,7 @@ An "oops":
   ~/Projects/portfolio $ # ...edits the homepage...
   ~/Projects/portfolio $ meow save "Update the homepage"
   Saving 2 changes…
-  ✓ Saved "Update the homepage"                 main · just now
+  ✅ Saved "Update the homepage"                 main · just now
 
   ~/Projects/portfolio $ meow undo
   Your last save was "Update the homepage" — 1 minute ago.
@@ -1814,7 +1835,7 @@ An "oops":
     2  Remove them too
   > 1
 
-  ✓ Undone. Your work is still here — it's just not saved anymore.
+  ✅ Undone. Your work is still here — it's just not saved anymore.
   Changed your mind?  meow redo
   Next  meow save "A better note"
 ```
@@ -1824,14 +1845,14 @@ And the panic case:
 ```
   ~/Projects/portfolio $ # ...tries a draft image and decides against it...
   ~/Projects/portfolio $ meow discard images/draft.png
-  ✓ Discarded. You can get it back for 30 days with `meow recover`.
+  ✅ Discarded. You can get it back for 30 days with `meow recover`.
 
   ~/Projects/portfolio $ meow recover
   Recoverable work
     Discarded images/draft.png          1 minute ago      1 file
   [1] restore  [q] quit
   > 1
-  ✓ Restored images/draft.png
+  ✅ Restored images/draft.png
 ```
 
 That is the whole product: four verbs, two escapes, and no fear.
@@ -1960,8 +1981,8 @@ Some things can only be judged by building a small, fake screen and watching som
 5. **The cat.** Show two versions of the first-run screen to five people who are not developers and five who are; measure whether the tone changes trust.
 6. **`--plain` in scripts.** Confirm the one-line format is stable enough to be worth documenting as an API.
 7. **One home.** Does hiding multiple remotes ever block a real beginner workflow? Test with a fork.
-8. **The GitHub publish flow.** Measure drop-off at every step with a real OAuth app, not a mock.
+8. **The GitHub publish flow.** Measure drop-off at every step with a real `gh` login, not a mock.
 
 ---
 
-*End of draft. Next step: review the open questions in §21, settle the command names, and prototype the eight screens in Appendix E before any code is written.*
+*End of plan. Every decision in §21 is settled; the remaining work listed in Appendix E is prototyping for polish, not for scope. Build in the milestone order of §18.*

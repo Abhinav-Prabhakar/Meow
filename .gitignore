@@ -1,0 +1,14 @@
+# Local planning files (explicitly ignored per project owner)
+task.md
+progress.md
+
+# Rust
+/target
+**/*.rs.bk
+
+# Local meow state that might be created during demos
+.meow/
+*.meow-recovered-*
+
+# macOS
+.DS_Store
