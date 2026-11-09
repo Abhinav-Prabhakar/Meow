@@ -1,10 +1,10 @@
 //! Small helpers shared by commands.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 use anyhow::{anyhow, Result};
-use chrono::{DateTime, Datelike, Duration, FixedOffset, Utc};
+use chrono::{DateTime, Datelike, FixedOffset, Utc};
 
 use crate::repo::Repo;
 use crate::ui::Ui;
@@ -29,12 +29,6 @@ pub fn display_path(path: &Path) -> String {
         }
     }
     path.display().to_string()
-}
-
-pub fn cwd_display() -> String {
-    std::env::current_dir()
-        .map(|p| display_path(&p))
-        .unwrap_or_else(|_| ".".to_string())
 }
 
 pub fn relative_time(when: DateTime<FixedOffset>) -> String {
@@ -69,6 +63,15 @@ pub fn relative_to(when: DateTime<Utc>, now: DateTime<Utc>) -> String {
     format!("{n} year{} ago", plural(n))
 }
 
+/// `1 file` / `3 files` — the small grammar that makes output feel human.
+pub fn count(n: usize, singular: &str) -> String {
+    if n == 1 {
+        format!("{n} {singular}")
+    } else {
+        format!("{n} {singular}s")
+    }
+}
+
 fn plural(n: i64) -> &'static str {
     if n == 1 {
         ""
@@ -88,14 +91,13 @@ pub fn day_label(when: DateTime<FixedOffset>) -> String {
     } else if date.year() == today.year() {
         format!("{} {}", month_name(date.month()), date.day())
     } else {
-        format!("{} {}, {}", month_name(date.month()), date.day(), date.year())
+        format!(
+            "{} {}, {}",
+            month_name(date.month()),
+            date.day(),
+            date.year()
+        )
     }
-}
-
-pub fn clock_time(when: DateTime<FixedOffset>) -> String {
-    when.with_timezone(&chrono::Local)
-        .format("%-I:%M %p")
-        .to_string()
 }
 
 fn month_name(m: u32) -> &'static str {
@@ -148,11 +150,9 @@ pub fn slugify(name: &str) -> String {
         if c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '/' {
             out.push(c);
             last_dash = false;
-        } else if c == '-' || c.is_whitespace() {
-            if !last_dash && !out.is_empty() {
-                out.push('-');
-                last_dash = true;
-            }
+        } else if (c == '-' || c.is_whitespace()) && !last_dash && !out.is_empty() {
+            out.push('-');
+            last_dash = true;
         }
     }
     let trimmed = out.trim_matches(['-', '/', '.']).to_string();
@@ -244,10 +244,6 @@ fn short_name(path: &str) -> String {
         .unwrap_or_else(|| path.to_string())
 }
 
-pub fn now_utc() -> DateTime<Utc> {
-    Utc::now()
-}
-
 pub fn truncate_chars(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         return s.to_string();
@@ -255,20 +251,4 @@ pub fn truncate_chars(s: &str, max: usize) -> String {
     let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
     out.push('…');
     out
-}
-
-pub fn safe_remove(path: &Path) {
-    if path.is_dir() {
-        let _ = std::fs::remove_dir_all(path);
-    } else {
-        let _ = std::fs::remove_file(path);
-    }
-}
-
-pub fn parent_dir(path: &Path) -> PathBuf {
-    path.parent().map(Path::to_path_buf).unwrap_or_default()
-}
-
-pub fn days_ago(days: i64) -> DateTime<Utc> {
-    Utc::now() - Duration::days(days)
 }

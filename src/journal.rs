@@ -236,7 +236,9 @@ pub fn create_snapshot(repo: &Repo, label: &str) -> Result<String> {
         .context("Couldn't read the working tree for a safety snapshot")?;
     if !added.success() {
         let _ = fs::remove_file(&index);
-        return Err(anyhow!("Couldn't read the working tree for a safety snapshot"));
+        return Err(anyhow!(
+            "Couldn't read the working tree for a safety snapshot"
+        ));
     }
 
     let tree = repo
@@ -312,14 +314,14 @@ fn save_snapshots(git_dir: &Path, idx: &SnapshotIndex) -> Result<()> {
 
 pub fn list_snapshots(repo: &Repo) -> Vec<SnapshotMeta> {
     let mut idx = load_snapshots(&repo.git_dir);
-    idx.snapshots.sort_by(|a, b| b.at.cmp(&a.at));
+    idx.snapshots.sort_by_key(|s| std::cmp::Reverse(s.at));
     idx.snapshots
         .retain(|s| repo.git.probe(&["cat-file", "-e", &s.sha]).is_some());
     idx.snapshots
 }
 
 fn prune_snapshots(repo: &Repo, idx: &mut SnapshotIndex) {
-    idx.snapshots.sort_by(|a, b| b.at.cmp(&a.at));
+    idx.snapshots.sort_by_key(|s| std::cmp::Reverse(s.at));
     let cutoff = Utc::now() - Duration::days(KEEP_DAYS);
     let mut kept = Vec::new();
     for (i, snap) in idx.snapshots.iter().enumerate() {
@@ -417,10 +419,7 @@ pub fn move_to_trash(repo: &Repo, paths: &[String], label: &str) -> Result<Trash
         at: Utc::now(),
         files: moved,
     };
-    write_private(
-        &base.join("meta.json"),
-        serde_json::to_vec_pretty(&meta)?,
-    )?;
+    write_private(&base.join("meta.json"), serde_json::to_vec_pretty(&meta)?)?;
     restrict(&base);
     Ok(meta)
 }
@@ -438,7 +437,7 @@ pub fn list_trash(git_dir: &Path) -> Vec<TrashMeta> {
             }
         }
     }
-    out.sort_by(|a, b| b.at.cmp(&a.at));
+    out.sort_by_key(|s| std::cmp::Reverse(s.at));
     out
 }
 
@@ -520,9 +519,4 @@ fn remove_empty_parents(root: &Path, file: &Path) {
             break;
         }
     }
-}
-
-// A small marker used by tests and doctor to recognise a live journal.
-pub fn journal_exists(git_dir: &Path) -> bool {
-    journal_path(git_dir).exists()
 }

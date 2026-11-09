@@ -32,17 +32,12 @@ pub enum Sym {
     Success,
     Warn,
     Error,
-    Branch,
     Home,
     Cat,
     Dot,
     Circle,
     Up,
     Down,
-    Arrow,
-    Sep,
-    Ellipsis,
-    Spark,
 }
 
 #[derive(Clone, Copy)]
@@ -53,7 +48,6 @@ pub enum Paint {
     Cyan,
     Dim,
     Bold,
-    Plain,
 }
 
 pub struct Ui {
@@ -95,31 +89,21 @@ impl Ui {
             (Sym::Success, false) => "✅",
             (Sym::Warn, false) => "⚠️",
             (Sym::Error, false) => "❌",
-            (Sym::Branch, false) => "🌿",
             (Sym::Home, false) => "☁️",
             (Sym::Cat, false) => "🐱",
             (Sym::Dot, false) => "●",
             (Sym::Circle, false) => "○",
             (Sym::Up, false) => "↑",
             (Sym::Down, false) => "↓",
-            (Sym::Arrow, false) => "→",
-            (Sym::Sep, false) => "·",
-            (Sym::Ellipsis, false) => "…",
-            (Sym::Spark, false) => "✨",
             (Sym::Success, true) => "[ok]",
             (Sym::Warn, true) => "[!]",
             (Sym::Error, true) => "[x]",
-            (Sym::Branch, true) => "br",
             (Sym::Home, true) => "home",
             (Sym::Cat, true) => "=^..^=",
             (Sym::Dot, true) => "*",
             (Sym::Circle, true) => "o",
             (Sym::Up, true) => "^",
             (Sym::Down, true) => "v",
-            (Sym::Arrow, true) => "->",
-            (Sym::Sep, true) => "-",
-            (Sym::Ellipsis, true) => "...",
-            (Sym::Spark, true) => "*",
         }
     }
 
@@ -137,7 +121,6 @@ impl Ui {
             Paint::Cyan => Style::new().cyan(),
             Paint::Dim => Style::new().dim(),
             Paint::Bold => Style::new().bold(),
-            Paint::Plain => Style::new(),
         };
         st.apply_to(text).to_string()
     }
@@ -197,7 +180,13 @@ impl Ui {
             println!("{text}");
         } else {
             println!("  {}", self.bold(text));
-            println!("  {}", self.paint("─".repeat(self.width().min(60).saturating_sub(2)), Paint::Dim));
+            println!(
+                "  {}",
+                self.paint(
+                    "─".repeat(self.width().min(60).saturating_sub(2)),
+                    Paint::Dim
+                )
+            );
         }
     }
 
@@ -229,10 +218,6 @@ impl Ui {
         if self.plain {
             return;
         }
-        self.line(self.dim(text));
-    }
-
-    pub fn note(&self, text: impl Display) {
         self.line(self.dim(text));
     }
 
@@ -324,17 +309,10 @@ impl Ui {
             ));
         }
         let theme = meow_theme(self.color);
-        if self.color {
-            Ok(Confirm::with_theme(&theme)
-                .with_prompt(prompt)
-                .default(default)
-                .interact()?)
-        } else {
-            Ok(Confirm::with_theme(&theme)
-                .with_prompt(prompt)
-                .default(default)
-                .interact()?)
-        }
+        Ok(Confirm::with_theme(&theme)
+            .with_prompt(prompt)
+            .default(default)
+            .interact()?)
     }
 
     pub fn input(&self, prompt: &str, initial: &str) -> Result<String> {
@@ -397,6 +375,11 @@ impl Ui {
             .unwrap_or(80)
     }
 
+    /// True when results are being shown to a person at a terminal.
+    pub fn is_terminal(&self) -> bool {
+        self.interactive && io::stdout().is_terminal()
+    }
+
     pub fn page(&self, content: &str) {
         if self.plain || !io::stdout().is_terminal() {
             print!("{content}");
@@ -433,24 +416,10 @@ impl Ui {
             Err(_) => print!("{content}"),
         }
     }
-
-    pub fn cat(&self) {
-        if self.plain {
-            return;
-        }
-        let c = self.sym(Sym::Cat);
-        println!("  {c}");
-        println!("  {} meow", self.bold(""));
-        self.blank();
-    }
 }
 
-fn meow_theme(color: bool) -> ColorfulTheme {
-    if color {
-        ColorfulTheme::default()
-    } else {
-        ColorfulTheme::default()
-    }
+fn meow_theme(_color: bool) -> ColorfulTheme {
+    ColorfulTheme::default()
 }
 
 /// Display width that accounts for emoji and wide characters.
@@ -465,31 +434,4 @@ pub fn display_width(s: &str) -> usize {
 pub fn pad_right(s: &str, width: usize) -> String {
     let w = display_width(s);
     format!("{s}{}", " ".repeat(width.saturating_sub(w)))
-}
-
-/// Trim a path for display, keeping the tail and a leading ellipsis.
-pub fn shorten_path(path: &str, max: usize) -> String {
-    if display_width(path) <= max {
-        return path.to_string();
-    }
-    let mut out = String::new();
-    for ch in path.chars().rev() {
-        let candidate = format!("…{ch}{out}");
-        if display_width(&candidate) > max.saturating_sub(1) {
-            break;
-        }
-        out.insert(0, ch);
-    }
-    format!("…{out}")
-}
-
-/// A dim, aligned two-column listing used by history and branches.
-pub fn columns(left: &str, right: &str, width: usize) -> String {
-    let lw = display_width(left);
-    let rw = display_width(right);
-    if lw + rw + 2 > width {
-        format!("{left}  {right}")
-    } else {
-        format!("{left}{}{right}", " ".repeat(width - lw - rw))
-    }
 }

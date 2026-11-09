@@ -79,11 +79,7 @@ pub fn run(
             }
         ));
         for hit in &hits {
-            ui.line(format!(
-                "  {}  {}",
-                hit.path,
-                ui.dim(&hit.reason)
-            ));
+            ui.line(format!("  {}  {}", hit.path, ui.dim(&hit.reason)));
         }
         ui.blank();
         ui.line("Saving these can put passwords or keys in your project's history.");
@@ -257,19 +253,17 @@ pub fn run(
             .map(|s| s.chars().take(8).collect::<String>())
             .unwrap_or_default();
         let branch = repo.branch().unwrap_or_else(|| "main".to_string());
-        println!("saved {short} {branch} \"{note}\" {count} files");
+        println!(
+            "saved {short} {branch} \"{note}\" {}",
+            crate::util::count(count, "file")
+        );
         return Ok(0);
     }
 
     let branch = repo.branch().unwrap_or_else(|| "main".to_string());
     let right = format!("{} · just now", branch);
-    let left = format!(
-        "{} Saved \"{}\"",
-        ui.sym(Sym::Success),
-        note
-    );
+    let left = format!("{} Saved \"{}\"", ui.sym(Sym::Success), note);
     ui.line(format!("{left}{}{}", " ".repeat(2), ui.dim(right)));
-    ui.blank();
 
     let status = repo.status()?;
     let unsent = crate::commands::home::unsent_count(&repo, &status);
@@ -313,8 +307,6 @@ fn nothing_to_save(ui: &Ui, repo: &Repo) -> Result<()> {
 
 fn show_commit_failure(ui: &Ui, out: &crate::git::GitOutput) -> Result<()> {
     let err = crate::git::GitError {
-        command: out.command.clone(),
-        code: out.code,
         stdout: out.stdout.clone(),
         stderr: out.stderr.clone(),
     };
@@ -364,7 +356,10 @@ fn scan_secrets(repo: &Repo, files: &[FileChange]) -> Vec<SecretHit> {
         "secrets.toml",
     ];
     let content_patterns = [
-        (r"-----BEGIN (RSA |OPENSSH |EC |DSA |PGP )?PRIVATE KEY-----", "a private key"),
+        (
+            r"-----BEGIN (RSA |OPENSSH |EC |DSA |PGP )?PRIVATE KEY-----",
+            "a private key",
+        ),
         (r"AKIA[0-9A-Z]{16}", "an AWS access key"),
         (r"gh[pousr]_[A-Za-z0-9]{20,}", "a GitHub token"),
         (r"sk-[A-Za-z0-9]{20,}", "an API token"),

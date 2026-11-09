@@ -49,11 +49,7 @@ pub fn run(ui: &Ui, name: Option<&str>) -> Result<i32> {
     let identity = ensure_identity(ui, &git)?;
 
     let branch = choose_branch(&git);
-    let init = git.check(&[
-        "init",
-        "-b",
-        &branch,
-    ]);
+    let init = git.check(&["init", "-b", &branch]);
     if let Err(err) = init {
         let text = err.to_string();
         if text.contains("unknown switch") || text.contains("unknown option") {
@@ -132,12 +128,14 @@ pub fn run(ui: &Ui, name: Option<&str>) -> Result<i32> {
     } else if !was_empty {
         ui.line(ui.dim("Your files were already here — nothing was overwritten."));
     }
-    ui.blank();
 
     let mut next = Vec::new();
     let cd;
     if created_folder {
-        cd = format!("cd {}", target.file_name().unwrap_or_default().to_string_lossy());
+        cd = format!(
+            "cd {}",
+            target.file_name().unwrap_or_default().to_string_lossy()
+        );
         next.push((cd.as_str(), "go into the project"));
     }
     next.push(("meow save \"First save\"", "save the starter files"));
@@ -164,7 +162,9 @@ fn ensure_identity(ui: &Ui, git: &Git) -> Result<Option<(String, String)>> {
     let name = ui.input("Your name", "")?;
     let email = ui.input("Your email", "")?;
     if name.trim().is_empty() || email.trim().is_empty() {
-        return Err(anyhow!("A name and email are needed before the first save."));
+        return Err(anyhow!(
+            "A name and email are needed before the first save."
+        ));
     }
     Ok(Some((name, email)))
 }

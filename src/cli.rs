@@ -133,8 +133,9 @@ pub enum Command {
     /// List, start, or switch a branch.
     #[command(alias = "switch", alias = "checkout")]
     Branch {
-        /// Branch name. Omit to list branches.
-        name: Option<String>,
+        /// A branch name, or `delete <name>`.
+        #[arg(value_name = "NAME")]
+        args: Vec<String>,
 
         /// Delete a branch instead of switching.
         #[arg(long)]

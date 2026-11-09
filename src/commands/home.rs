@@ -65,7 +65,10 @@ fn home(ui: &Ui, repo: &Repo) -> Result<()> {
         match op {
             Operation::Merge => {
                 let other = merge_source(repo).unwrap_or_else(|| "another branch".to_string());
-                let current = status.branch.clone().unwrap_or_else(|| "this branch".to_string());
+                let current = status
+                    .branch
+                    .clone()
+                    .unwrap_or_else(|| "this branch".to_string());
                 ui.line(format!(
                     "You're combining {} into {}.",
                     ui.cyan(other),
@@ -73,8 +76,13 @@ fn home(ui: &Ui, repo: &Repo) -> Result<()> {
                 ));
                 if status.conflicted() {
                     ui.line(format!(
-                        "{} still need your help.",
-                        plural_files(status.conflicts.len())
+                        "{} {} your help.",
+                        plural_files(status.conflicts.len()),
+                        if status.conflicts.len() == 1 {
+                            "still needs"
+                        } else {
+                            "still need"
+                        }
                     ));
                 } else {
                     ui.line("Everything is combined. Finish when you're ready.");
@@ -110,17 +118,9 @@ fn home(ui: &Ui, repo: &Repo) -> Result<()> {
         return Ok(());
     }
     let branch = status.branch.clone().unwrap_or_else(|| "main".to_string());
-    ui.line(format!(
-        "You're on {} {}.",
-        ui.sym(Sym::Branch),
-        ui.bold(&branch)
-    ));
+    ui.line(format!("You're on {}.", ui.bold(&branch)));
     if let Some(home) = repo.home_label() {
-        ui.line(format!(
-            "{}  {}",
-            ui.sym(Sym::Home),
-            ui.dim(home)
-        ));
+        ui.line(format!("{}  {}", ui.sym(Sym::Home), ui.dim(home)));
     }
 
     ui.blank();
@@ -147,10 +147,7 @@ fn home(ui: &Ui, repo: &Repo) -> Result<()> {
             ui.line(label);
         }
     } else if repo.has_commits() {
-        ui.line(format!(
-            "{} No unsaved changes.",
-            ui.sym(Sym::Success)
-        ));
+        ui.line(format!("{} No unsaved changes.", ui.sym(Sym::Success)));
     } else {
         ui.line(ui.dim(format!("{} No saves yet.", ui.sym(Sym::Circle))));
     }
@@ -227,7 +224,7 @@ fn plain_home(ui: &Ui, repo: &Repo, status: &Status, path: &str) {
     println!("unsent {}", unsent_count(repo, status));
     println!("incoming {}", incoming_count(repo, status));
     if status.conflicted() {
-        println!("conflicts {} files", status.conflicts.len());
+        println!("conflicts {}", plural_files(status.conflicts.len()));
     }
     let files = status.files.clone();
     if status.dirty() {
@@ -322,12 +319,7 @@ fn table(ui: &Ui, rows: &[(&str, &str)]) {
         + 4;
     for (label, cmd) in rows {
         let pad = width.saturating_sub(display_width(label));
-        ui.line(format!(
-            "{}{}{}",
-            label,
-            " ".repeat(pad),
-            ui.cyan(cmd)
-        ));
+        ui.line(format!("{}{}{}", label, " ".repeat(pad), ui.cyan(cmd)));
     }
 }
 

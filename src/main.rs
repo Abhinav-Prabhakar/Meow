@@ -20,7 +20,13 @@ fn main() {
 
     // `meow --help` is the first screen for many people; use our own.
     if args.len() == 2 && (args[1] == "--help" || args[1] == "-h") {
-        let ui = Ui::new(false, false, args.iter().any(|a| a == "--ascii"), false, false);
+        let ui = Ui::new(
+            false,
+            false,
+            args.iter().any(|a| a == "--ascii"),
+            false,
+            false,
+        );
         let _ = commands::help::run(&ui, None, false);
         return;
     }
@@ -37,7 +43,10 @@ fn main() {
             }
             let ui = Ui::new(false, false, false, false, false);
             let text = err.to_string();
-            let first = text.lines().next().unwrap_or("That command doesn't look right.");
+            let first = text
+                .lines()
+                .next()
+                .unwrap_or("That command doesn't look right.");
             let first = first.trim_start_matches("error: ");
             ui.failure(first);
             ui.next(&[("meow help", "see everything you can do")]);
@@ -67,9 +76,7 @@ fn run(cli: &Cli, ui: &Ui) -> Result<i32> {
             allow_large,
         } => commands::save::run(ui, message.as_deref(), only, *allow_secrets, *allow_large),
         Command::Send => commands::send::run(ui),
-        Command::Get { link, folder } => {
-            commands::get::run(ui, link.as_deref(), folder.as_deref())
-        }
+        Command::Get { link, folder } => commands::get::run(ui, link.as_deref(), folder.as_deref()),
         Command::Changes { path, stat, saved } => {
             commands::changes::run(ui, path.as_deref(), *stat, saved.as_deref())
         }
@@ -83,10 +90,10 @@ fn run(cli: &Cli, ui: &Ui) -> Result<i32> {
         Command::Undo { n, list } => commands::undo::run(ui, *n, *list),
         Command::Redo => commands::redo::run(ui),
         Command::Branch {
-            name,
+            args,
             delete,
             force,
-        } => commands::branch::run(ui, name.as_deref(), *delete, *force),
+        } => commands::branch::run(ui, args, *delete, *force),
         Command::Merge { name, yes } => commands::merge::run(ui, name, *yes),
         Command::Resolve {
             ours,

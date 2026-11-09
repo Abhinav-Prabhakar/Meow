@@ -5,7 +5,7 @@
 //! exactly as they would with plain Git.
 
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 use anyhow::{anyhow, Result};
@@ -14,8 +14,6 @@ use crate::ui::Ui;
 
 #[derive(Debug)]
 pub struct GitError {
-    pub command: String,
-    pub code: Option<i32>,
     pub stdout: String,
     pub stderr: String,
 }
@@ -138,8 +136,6 @@ impl Git {
             Ok(out)
         } else {
             Err(anyhow::Error::new(GitError {
-                command: out.command,
-                code: out.code,
                 stdout: out.stdout,
                 stderr: out.stderr,
             }))
@@ -154,50 +150,14 @@ impl Git {
 
     /// Run git, returning trimmed stdout, or `None` if it failed. Used for probes.
     pub fn probe(&self, args: &[&str]) -> Option<String> {
-        self.run(args).ok().filter(|o| o.success()).map(|o| {
-            o.stdout
-                .trim_end_matches(['\n', '\r'])
-                .to_string()
-        })
+        self.run(args)
+            .ok()
+            .filter(|o| o.success())
+            .map(|o| o.stdout.trim_end_matches(['\n', '\r']).to_string())
     }
 
     pub fn probe_bool(&self, args: &[&str]) -> bool {
         self.run(args).map(|o| o.success()).unwrap_or(false)
-    }
-
-    /// Run git with the current directory set elsewhere.
-    pub fn at(&self, dir: impl Into<PathBuf>) -> Git {
-        Git {
-            cwd: dir.into(),
-            ui: self.clone_ui(),
-        }
-    }
-
-    fn clone_ui(&self) -> Ui {
-        Ui::new(
-            self.ui.plain,
-            !self.ui.color,
-            self.ui.ascii,
-            self.ui.explain,
-            self.ui.verbose,
-        )
-    }
-
-    pub fn ui(&self) -> &Ui {
-        &self.ui
-    }
-
-    pub fn root(&self) -> &Path {
-        &self.cwd
-    }
-
-    pub fn git_dir(&self) -> Option<PathBuf> {
-        self.probe(&["rev-parse", "--absolute-git-dir"])
-            .map(PathBuf::from)
-    }
-
-    pub fn is_repo(&self) -> bool {
-        self.probe(&["rev-parse", "--git-dir"]).is_some()
     }
 
     pub fn head(&self) -> Option<String> {

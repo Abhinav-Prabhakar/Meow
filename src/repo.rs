@@ -2,10 +2,10 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use chrono::{DateTime, FixedOffset};
 
-use crate::git::{Failure, Git, GitError};
+use crate::git::Git;
 use crate::ui::Ui;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,10 +22,7 @@ pub enum ChangeKind {
 #[derive(Debug, Clone)]
 pub struct FileChange {
     pub path: String,
-    pub original: Option<String>,
     pub kind: ChangeKind,
-    pub staged: bool,
-    pub unstaged: bool,
 }
 
 impl FileChange {
@@ -94,8 +91,6 @@ pub struct Branch {
     pub name: String,
     pub sha: String,
     pub when: Option<DateTime<FixedOffset>>,
-    pub upstream: Option<String>,
-    pub subject: String,
     pub merged: bool,
 }
 
@@ -110,7 +105,6 @@ pub struct Commit {
 
 #[derive(Debug, Clone)]
 pub struct HeadInfo {
-    pub sha: String,
     pub subject: String,
     pub author: String,
     pub when: DateTime<FixedOffset>,
@@ -152,20 +146,42 @@ impl Repo {
             .map(|p| if p.is_absolute() { p } else { root.join(p) })
             .unwrap_or_else(|| root.join(".git"));
         let git = Git::new(&root, ui);
-        Ok(Some(Repo {
-            root,
-            git_dir,
-            git,
-        }))
-    }
-
-    pub fn ui(&self) -> &Ui {
-        self.git.ui()
+        Ok(Some(Repo { root, git_dir, git }))
     }
 
     pub fn status(&self) -> Result<Status> {
-        let out = self.git.check(&["status", "--porcelain=v2", "--branch", "-z"])?;
-        Ok(parse_status(&out.stdout))
+        let out = self
+            .git
+            .check(&["status", "--porcelain=v2", "--branch", "-z"])?;
+        let mut status = parse_status(&out.stdout);
+        status.operation = self.detect_operation();
+        Ok(status)
+    }
+
+    /// Which multi-step Git operation, if any, is in progress.
+    fn detect_operation(&self) -> Option<Operation> {
+        let exists = |name: &str| -> bool {
+            self.git
+                .probe(&["rev-parse", "--git-path", name])
+                .map(|p| Path::new(&p).exists())
+                .unwrap_or(false)
+        };
+        if exists("rebase-merge") || exists("rebase-apply") {
+            return Some(Operation::Rebase);
+        }
+        if exists("MERGE_HEAD") {
+            return Some(Operation::Merge);
+        }
+        if exists("CHERRY_PICK_HEAD") {
+            return Some(Operation::CherryPick);
+        }
+        if exists("REVERT_HEAD") {
+            return Some(Operation::Revert);
+        }
+        if exists("BISECT_LOG") {
+            return Some(Operation::Bisect);
+        }
+        None
     }
 
     pub fn head(&self) -> Option<String> {
@@ -185,7 +201,7 @@ impl Repo {
             .git
             .out(&["log", "-1", "--pretty=format:%H%x00%s%x00%an%x00%aI"])?;
         let mut parts = raw.split('\0');
-        let sha = parts.next().unwrap_or_default().to_string();
+        let _sha = parts.next().unwrap_or_default().to_string();
         let subject = parts.next().unwrap_or_default().to_string();
         let author = parts.next().unwrap_or_default().to_string();
         let when = parts
@@ -195,7 +211,6 @@ impl Repo {
                 DateTime::parse_from_rfc3339("1970-01-01T00:00:00Z").expect("epoch")
             });
         Ok(HeadInfo {
-            sha,
             subject,
             author,
             when,
@@ -253,7 +268,7 @@ impl Repo {
             .unwrap_or_default();
         let raw = self.git.out(&[
             "for-each-ref",
-            "--format=%(refname:short)%00%(objectname)%00%(committerdate:iso-strict)%00%(upstream:short)%00%(contents:subject)",
+            "--format=%(refname:short)%00%(objectname)%00%(committerdate:iso-strict)",
             "refs/heads",
         ])?;
         let mut out = Vec::new();
@@ -264,18 +279,12 @@ impl Repo {
                 continue;
             }
             let sha = f.next().unwrap_or_default().to_string();
-            let when = f
-                .next()
-                .and_then(|s| DateTime::parse_from_rfc3339(s).ok());
-            let upstream = f.next().filter(|s| !s.is_empty()).map(str::to_string);
-            let subject = f.next().unwrap_or_default().to_string();
+            let when = f.next().and_then(|s| DateTime::parse_from_rfc3339(s).ok());
             out.push(Branch {
                 merged: merged.iter().any(|m| m == &name),
                 name,
                 sha,
                 when,
-                upstream,
-                subject,
             });
         }
         Ok(out)
@@ -376,18 +385,6 @@ impl Repo {
         stat
     }
 
-    pub fn commit_files(&self, sha: &str) -> Vec<String> {
-        self.git
-            .probe(&["show", "--name-only", "--format=", "-z", sha])
-            .map(|s| {
-                s.split('\0')
-                    .filter(|p| !p.trim().is_empty())
-                    .map(str::to_string)
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
     pub fn is_ancestor(&self, ancestor: &str, descendant: &str) -> bool {
         self.git
             .probe_bool(&["merge-base", "--is-ancestor", ancestor, descendant])
@@ -401,23 +398,6 @@ impl Repo {
         }
         Some((name.trim().to_string(), email.trim().to_string()))
     }
-
-    pub fn config(&self, key: &str) -> Option<String> {
-        self.git.probe(&["config", "--get", key])
-    }
-
-    pub fn error_for(err: &GitError) -> anyhow::Error {
-        let failure = crate::git::classify(err);
-        if failure == Failure::Other {
-            anyhow!("{}", err)
-        } else {
-            anyhow!("{} {}", failure.message(), failure.hint())
-        }
-    }
-
-    pub fn is_clean(&self) -> Result<bool> {
-        Ok(!self.status()?.dirty())
-    }
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -425,12 +405,6 @@ pub struct DiffStat {
     pub files: usize,
     pub added: usize,
     pub deleted: usize,
-}
-
-impl DiffStat {
-    pub fn summary(&self) -> String {
-        format!("{} files · +{} -{}", self.files, self.added, self.deleted)
-    }
 }
 
 fn count_lines(path: &Path) -> usize {
@@ -486,18 +460,19 @@ pub fn parse_status(raw: &str) -> Status {
         let kind = rec.chars().next().unwrap_or('?');
         match kind {
             '1' => {
-                if let Some(fc) = parse_v2_change(rec, None) {
+                if let Some(fc) = parse_v2_change(rec) {
                     status.files.push(fc);
                 }
             }
             '2' => {
-                let original = records.next().map(str::to_string);
-                if let Some(fc) = parse_v2_change(rec, original) {
+                // Rename records are followed by the original path.
+                let _original = records.next();
+                if let Some(fc) = parse_v2_change(rec) {
                     status.files.push(fc);
                 }
             }
             'u' => {
-                if let Some(fc) = parse_v2_change(rec, None) {
+                if let Some(fc) = parse_v2_change(rec) {
                     status.conflicts.push(fc.path.clone());
                     status.files.push(fc);
                 }
@@ -506,10 +481,7 @@ pub fn parse_status(raw: &str) -> Status {
                 let path = rec[2..].to_string();
                 status.files.push(FileChange {
                     path,
-                    original: None,
                     kind: ChangeKind::Untracked,
-                    staged: false,
-                    unstaged: true,
                 });
             }
             _ => {}
@@ -518,7 +490,7 @@ pub fn parse_status(raw: &str) -> Status {
     status
 }
 
-fn parse_v2_change(rec: &str, original: Option<String>) -> Option<FileChange> {
+fn parse_v2_change(rec: &str) -> Option<FileChange> {
     // 1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>
     // 2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path>
     // u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>
@@ -553,13 +525,7 @@ fn parse_v2_change(rec: &str, original: Option<String>) -> Option<FileChange> {
     } else {
         ChangeKind::Modified
     };
-    Some(FileChange {
-        path,
-        original,
-        kind,
-        staged: x != '.' && x != '?' && x != ' ',
-        unstaged: y != '.' && y != ' ',
-    })
+    Some(FileChange { path, kind })
 }
 
 /// Turn a remote URL into the calm `host/path` label used on screen.
@@ -590,6 +556,13 @@ pub fn pretty_remote(url: &str) -> String {
         } else {
             s = user.to_string();
         }
+    }
+    // Local paths can pick up `./` and trailing slashes; keep them readable.
+    while s.contains("/./") {
+        s = s.replace("/./", "/");
+    }
+    if s.ends_with('/') && s.len() > 1 {
+        s.pop();
     }
     s
 }
