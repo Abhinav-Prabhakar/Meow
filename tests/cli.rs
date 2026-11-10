@@ -411,7 +411,7 @@ fn send_and_get_use_a_local_home() {
     s.commit("a.txt", "one\n", "First");
     let home = s._temp.path().join("home.git");
     let out = StdCommand::new("git")
-        .args(["init", "-q", "--bare", home.to_str().unwrap()])
+        .args(["init", "-q", "-b", "main", "--bare", home.to_str().unwrap()])
         .output()
         .unwrap();
     assert!(out.status.success());
@@ -646,7 +646,7 @@ fn get_overlap_can_keep_the_unsaved_work() {
 
     let home = s._temp.path().join("home.git");
     let out = StdCommand::new("git")
-        .args(["init", "-q", "--bare", home.to_str().unwrap()])
+        .args(["init", "-q", "-b", "main", "--bare", home.to_str().unwrap()])
         .output()
         .unwrap();
     assert!(out.status.success());
@@ -726,7 +726,7 @@ fn undo_after_a_set_aside_overlap_restores_the_unsaved_work() {
 
     let home = s._temp.path().join("home.git");
     let out = StdCommand::new("git")
-        .args(["init", "-q", "--bare", home.to_str().unwrap()])
+        .args(["init", "-q", "-b", "main", "--bare", home.to_str().unwrap()])
         .output()
         .unwrap();
     assert!(out.status.success());
@@ -820,7 +820,7 @@ fn cancel_after_a_get_puts_the_set_aside_work_back() {
 
     let home = s._temp.path().join("home.git");
     let out = StdCommand::new("git")
-        .args(["init", "-q", "--bare", home.to_str().unwrap()])
+        .args(["init", "-q", "-b", "main", "--bare", home.to_str().unwrap()])
         .output()
         .unwrap();
     assert!(out.status.success());
@@ -864,4 +864,67 @@ fn cancel_after_a_get_puts_the_set_aside_work_back() {
     assert_eq!(s.read("other.txt"), "unsaved\n");
     assert!(s.git(&["stash", "list"]).trim().is_empty());
     assert_eq!(s.status().trim(), "M other.txt");
+}
+
+#[test]
+fn get_follows_the_home_when_the_clone_started_on_another_branch() {
+    let s = Sandbox::new();
+    s.commit("a.txt", "one\n", "First");
+
+    // An empty home defaulting to `master`, as CI's Git does.
+    let home = s._temp.path().join("home.git");
+    let out = StdCommand::new("git")
+        .args([
+            "init",
+            "-q",
+            "-b",
+            "master",
+            "--bare",
+            home.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+
+    // Cloning while the home is empty leaves an unborn `master` here.
+    let clone = s._temp.path().join("friend");
+    let mut cmd = Command::cargo_bin("meow").unwrap();
+    cmd.current_dir(s._temp.path())
+        .env("HOME", s._temp.path())
+        .args([
+            "--plain",
+            "get",
+            home.to_str().unwrap(),
+            "--folder",
+            "friend",
+        ]);
+    cmd.assert().success();
+    assert_eq!(
+        std::fs::read_to_string(clone.join(".git/HEAD"))
+            .unwrap()
+            .trim(),
+        "ref: refs/heads/master"
+    );
+
+    s.git(&["remote", "add", "origin", home.to_str().unwrap()]);
+    s.plain().arg("send").assert().success();
+
+    let friend = Sandbox {
+        _temp: TempDir::new().unwrap(),
+        dir: clone,
+    };
+    // `main` now exists at the home, and the local `master` has no saves of
+    // its own, so Meow follows the home instead of reporting it empty.
+    friend
+        .plain()
+        .arg("get")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("got main 1 new save"));
+    assert_eq!(friend.read("a.txt"), "one\n");
+    assert_eq!(
+        friend.git(&["symbolic-ref", "--short", "HEAD"]).trim(),
+        "main"
+    );
+    assert_eq!(friend.status().trim(), "");
 }

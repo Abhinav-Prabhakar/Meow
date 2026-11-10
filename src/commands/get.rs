@@ -88,7 +88,7 @@ fn clone_project(ui: &Ui, link: &str, folder: Option<&str>) -> Result<i32> {
 fn pull_project(ui: &Ui) -> Result<i32> {
     let repo = require_repo(ui)?;
     let status = repo.status()?;
-    let Some(branch) = status.branch.clone() else {
+    let Some(mut branch) = status.branch.clone() else {
         ui.failure("You're looking at an old save, not a branch.");
         let back = format!("meow branch {}", repo.suggested_branch());
         ui.next(&[(back.as_str(), "go back to your branch")]);
@@ -157,9 +157,24 @@ fn pull_project(ui: &Ui) -> Result<i32> {
     let upstream = repo
         .git
         .probe(&["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
-    let target = upstream
+    let mut target = upstream
         .clone()
         .unwrap_or_else(|| format!("refs/remotes/{}/{}", home.name, branch));
+    if upstream.is_none()
+        && repo
+            .git
+            .probe(&["rev-parse", "--verify", &target])
+            .is_none()
+    {
+        // A project cloned from an empty home starts on whatever branch the
+        // home defaulted to. If the first saves arrived under another name,
+        // the local branch has no commits and nothing to lose — follow the
+        // saves instead of reporting an empty home.
+        if let Some(adopted) = adopt_home_branch(&repo, &home.name, &branch) {
+            branch = adopted;
+            target = format!("refs/remotes/{}/{}", home.name, branch);
+        }
+    }
     if repo
         .git
         .probe(&["rev-parse", "--verify", &target])
@@ -168,8 +183,13 @@ fn pull_project(ui: &Ui) -> Result<i32> {
         if stashed {
             let _ = repo.git.run(&["stash", "pop", "--quiet"]);
         }
-        ui.line("The home doesn't have any saves yet.");
-        ui.next(&[("meow send", "put your saves online")]);
+        if repo.has_commits() {
+            ui.line(format!("The home doesn't have `{branch}` yet."));
+            ui.next(&[("meow send", "put your saves online")]);
+        } else {
+            ui.line("The home doesn't have any saves yet.");
+            ui.next(&[("meow send", "put your saves online")]);
+        }
         return Ok(0);
     }
 
@@ -254,6 +274,9 @@ fn pull_project(ui: &Ui) -> Result<i32> {
             .into_iter()
             .filter(|l| !l.contains("Merge"))
             .count(),
+        // A branch Meow adopted had no commits of its own, so every save on
+        // it is new here.
+        (None, Some(_)) => repo.commit_count(),
         _ => 0,
     };
 
@@ -369,6 +392,58 @@ fn report_git(ui: &Ui, out: &crate::git::GitOutput, fallback: &str) -> Result<i3
         ui.line(failure.hint());
     }
     Ok(1)
+}
+
+/// Switch an unborn branch to the home's only branch, returning its name.
+///
+/// Cloning an empty home leaves the local branch wherever the home's default
+/// pointed. Once saves exist under a different name, the local branch can
+/// safely follow them: it has no commits of its own, and unsaved work was
+/// already set aside before the fetch.
+fn adopt_home_branch(repo: &Repo, remote: &str, branch: &str) -> Option<String> {
+    if repo.has_commits() {
+        return None;
+    }
+    let prefix = format!("{remote}/");
+    let listed = repo
+        .git
+        .probe(&[
+            "for-each-ref",
+            "--format=%(refname:short)",
+            &format!("refs/remotes/{remote}"),
+        ])
+        .unwrap_or_default();
+    let branches: Vec<String> = listed
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix(&prefix).map(str::to_string))
+        .filter(|name| name != "HEAD")
+        .collect();
+    if branches.is_empty() || branches.iter().any(|name| name == branch) {
+        return None;
+    }
+    let head = repo
+        .git
+        .probe(&[
+            "symbolic-ref",
+            "--short",
+            &format!("refs/remotes/{remote}/HEAD"),
+        ])
+        .and_then(|name| name.trim().strip_prefix(&prefix).map(str::to_string));
+    let chosen = head
+        .filter(|name| branches.contains(name))
+        .or_else(|| (branches.len() == 1).then(|| branches[0].clone()))?;
+    let checkout = repo
+        .git
+        .run(&[
+            "checkout",
+            "--quiet",
+            "-b",
+            &chosen,
+            "--track",
+            &format!("{prefix}{chosen}"),
+        ])
+        .ok()?;
+    checkout.success().then_some(chosen)
 }
 
 /// Record the attempt before returning for conflict help, so resolving the

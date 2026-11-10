@@ -170,6 +170,7 @@ meow get github.com/ana/portfolio --folder site
 - If you have unsaved changes, Meow sets them aside in a stash, gets the latest, then puts them back.
 - If the incoming work conflicts with your unsaved work, you get conflict markers and a clear next step. Nothing is lost.
 - If the home has no saves yet, Meow says so and offers `meow send`.
+- If you cloned an empty home and its first saves landed on a different branch, Meow follows the home instead of staying on an empty branch. This only happens while your branch has no saves of its own.
 
 **With a link:** copy the project into a new folder. Meow understands full URLs, SSH links, `file://`, local paths, and the `owner/repo` shorthand.
 
