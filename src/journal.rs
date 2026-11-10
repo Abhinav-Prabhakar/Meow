@@ -194,13 +194,14 @@ fn write_private(path: &Path, bytes: Vec<u8>) -> Result<()> {
     Ok(())
 }
 
+#[cfg(unix)]
 fn restrict(path: &Path) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o700));
-    }
+    use std::os::unix::fs::PermissionsExt;
+    let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o700));
 }
+
+#[cfg(not(unix))]
+fn restrict(_path: &Path) {}
 
 // --------------------------------------------------------------------- snapshots
 
