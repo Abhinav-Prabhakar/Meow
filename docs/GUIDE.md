@@ -720,7 +720,7 @@ default_branch = "main"
 
 - `editor` — used by "Open in my editor" during a conflict. Falls back to `VISUAL`, then `EDITOR`, then `vi`/`notepad`.
 - `large_file_mb` — the save guard's threshold. Default `10`.
-- `default_branch` — used by `meow new` when Git has no `init.defaultBranch`.
+- `default_branch` — used by `meow new` when your global Git config has no `init.defaultBranch`. Meow starts on `main` otherwise, even if a system-wide Git install defaults to `master`.
 
 Environment variables:
 

@@ -175,7 +175,9 @@ fn choose_branch(git: &Git) -> String {
             return crate::util::slugify(&cfg);
         }
     }
-    if let Some(configured) = git.probe(&["config", "init.defaultBranch"]) {
+    // Only a person's own global preference counts here. A system-wide
+    // `master` default (common on Windows) should not override Meow's `main`.
+    if let Some(configured) = git.probe(&["config", "--global", "init.defaultBranch"]) {
         if !configured.trim().is_empty() {
             return configured.trim().to_string();
         }

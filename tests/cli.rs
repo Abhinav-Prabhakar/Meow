@@ -124,10 +124,15 @@ fn new_starts_a_project_and_never_overwrites_files() {
         "[user]\n\tname = Ana Lima\n\temail = ana@example.com\n",
     )
     .unwrap();
+    // A system-wide `master` default (common on Windows) must not decide
+    // where a new Meow project starts.
+    let system = temp.path().join("system-gitconfig");
+    std::fs::write(&system, "[init]\n\tdefaultBranch = master\n").unwrap();
     let mut cmd = Command::cargo_bin("meow").unwrap();
     cmd.current_dir(&dir)
         .env("HOME", temp.path())
         .env("GIT_CONFIG_GLOBAL", &global)
+        .env("GIT_CONFIG_SYSTEM", &system)
         .env("GIT_AUTHOR_NAME", "Ana Lima")
         .env("GIT_AUTHOR_EMAIL", "ana@example.com")
         .args(["new", "--plain"]);

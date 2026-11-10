@@ -353,7 +353,7 @@ editor = "code --wait"
 # Warn before saving a file larger than this.
 large_file_mb = 10
 
-# Used by `meow new` when Git has no init.defaultBranch.
+# Used by `meow new` when your global init.defaultBranch is unset.
 default_branch = "main"
 ```
 
