@@ -913,6 +913,7 @@ fn get_follows_the_home_when_the_clone_started_on_another_branch() {
         _temp: TempDir::new().unwrap(),
         dir: clone,
     };
+    friend.git(&["config", "core.autocrlf", "false"]);
     // `main` now exists at the home, and the local `master` has no saves of
     // its own, so Meow follows the home instead of reporting it empty.
     friend
