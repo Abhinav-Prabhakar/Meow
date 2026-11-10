@@ -222,16 +222,19 @@ meow redo
 
 - a save (the commit is removed; your files stay as they are);
 - a branch switch, creation, or deletion;
-- a combine;
-- a get;
-- a discard, an ignore, or a restore.
+- a combine, even one that needed conflicts resolved first;
+- a get, including one where your unsaved work was set aside and combined;
+- a discard, an ignore, a restore, or a recovery.
 
 Rules:
 
 - For a save, if the branch moved since the action, Meow refuses rather than guessing.
 - A **sent** save is never rewritten. Undoing it offers a new save that reverses it.
 - Undoing a save keeps your files. It only removes the checkpoint.
+- A combine with conflicts still open can't be undone; run `meow cancel` first.
+- Cancelling a combine can't be undone. Both branches are untouched, so `meow merge` again if you change your mind.
 - Sending itself cannot be undone; the work is already online.
+- `meow undo --list` marks each action as undoable or not.
 - `redo` puts back the last thing you undid, if the project has not changed since.
 
 Actions done outside Meow are not in the journal.
@@ -293,6 +296,8 @@ No arguments: walk through every conflicted file. For each conflicting block you
 
 `--ours`, `--theirs`, and `--both` resolve every conflict one way at once. `--both` works block by block, so shared context above and below a conflict is not duplicated. The separator depends on the file extension (`//`, `#`, `<!-- -->`, `--`).
 
+When the conflict is between your unsaved work and new saves that `meow get` brought in, the screen says so: `--ours` keeps your unsaved change, `--theirs` keeps the newer saved version, and finishing puts your choices back as ordinary unsaved changes. Nothing is committed until you run `meow save`.
+
 Binary files and files deleted on one side get a simple choice instead of a broken text view.
 
 When every conflict is resolved, Meow offers to finish the combine and create one save with both sides.
@@ -339,13 +344,15 @@ meow ignore
 
 ```sh
 meow recover
+meow recover 2
 meow recover --purge
 ```
 
-Lists safety snapshots and discarded files, newest first, with what they contain and when. Choose one to restore:
+Lists safety snapshots and discarded files, newest first, with what they contain and when. Run it without arguments and choose one to restore; pass the number from the list (`meow recover 2`) to restore it directly, which also works in `--plain` mode. Then:
 
 - Snapshots restore selected files from a private copy. Your current version is snapshotted first, so recovery itself is reversible.
 - Trash restores discarded untracked files. If a file exists again, the recovered copy gets a `.meow-recovered-<name>` name.
+- Set-aside work is unsaved work that `meow get` could not put back after a combine. Bringing it back may open conflicts, which `meow resolve` walks through.
 - `--purge` permanently empties the trash and removes snapshots. It asks first.
 
 Everything here is local. Nothing is uploaded.
@@ -392,6 +399,33 @@ meow learn
 ```
 
 An interactive, ten-minute session in a throwaway folder. It walks through saving, seeing changes, undoing, branching, combining, fixing a conflict, sharing (with a simulated local home), and recovering. No real project, account, or network is touched. Quitting is always allowed.
+
+### `meow completions <shell>` — tab completion
+
+```sh
+meow completions bash
+meow completions zsh
+meow completions fish
+meow completions powershell
+```
+
+Prints a completion script on standard output. Save it wherever your shell looks for completions, then restart the shell:
+
+```sh
+# bash (Linux)
+meow completions bash > ~/.local/share/bash-completion/completions/meow
+
+# zsh
+meow completions zsh > "${fpath[1]}/_meow"
+
+# fish
+meow completions fish > ~/.config/fish/completions/meow.fish
+
+# PowerShell
+meow completions powershell | Out-String | Invoke-Expression
+```
+
+Completions cover the daily commands and the commands that take a path or branch name.
 
 ### `meow version`
 
@@ -618,6 +652,40 @@ If a command cannot proceed without a person, it prints what it needs and exits 
   ❌ There are unsaved changes. (a decision is required)
 
   Save or discard them first, then run `meow merge`.
+```
+
+### Shapes you can parse
+
+Every line is `<keyword> <values…>`; counts and paths are separated by spaces, and paths keep their spaces because they always come last.
+
+```text
+meow /home/ana/portfolio        branch main        home github.com/ana/portfolio
+unsaved 2 +48 -12               unsent 1           incoming 0
+next: meow save "Update the gallery"
+
+saved 1a2b3c4d main "Add gallery" 4 files
+changes 2 +48 -12
+save 1a2b3c4 main "Add gallery" Ana Lima 2026-11-10T09:58:05+05:30
+undid save Add gallery
+discarded 2
+path notes.txt
+path scratch.md
+snapshot 1 2026-11-10T09:31:00+00:00 4 Before discarding unsaved changes
+trash 2 2026-11-10T09:32:10+00:00 1 Discarded
+aside 3 2026-11-10T09:33:02+00:00 1 set aside before getting new saves
+recovered 1 file
+got main 2 new saves from github.com/ana/portfolio
+up to date main
+sent main github.com/ana/portfolio 2 saves
+branch feature created true
+merged feature into main 1 save
+conflicts 1 src/app.js
+resolved 1 file
+combined finished
+cancelled combine
+ignored node_modules tracked false
+ok Git 2.54.0 found
+summary 0 failures 1 warnings
 ```
 
 Other exit codes:

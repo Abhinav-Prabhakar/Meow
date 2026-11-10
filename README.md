@@ -12,6 +12,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)](#install)
 [![Git](https://img.shields.io/badge/needs%20git-2.30%2B-black.svg)](https://git-scm.com)
+[![CI](https://github.com/Abhinav-Prabhakar/Meow/actions/workflows/ci.yml/badge.svg)](https://github.com/Abhinav-Prabhakar/Meow/actions/workflows/ci.yml)
 
 Meow is a real Git client. It does not invent a new version control system, hide your history in a database, or lock you in. It drives the `git` already installed on your machine, so hooks, signing, credentials, and configuration all keep working — and a teammate can clone your project with plain `git` whenever they like.
 
@@ -57,6 +58,26 @@ meow version
 ### Package managers
 
 Homebrew, `winget`, Scoop, and prebuilt signed installers are planned. Until they ship, use the source install above. Meow has **no self-updater** — upgrade the way you installed it.
+
+### Shell completions
+
+Tab completion covers the daily commands. Ask Meow to print the script for your shell and put it where the shell looks for completions.
+
+```sh
+# bash (Linux)
+meow completions bash > ~/.local/share/bash-completion/completions/meow
+
+# zsh
+meow completions zsh > "${fpath[1]}/_meow"
+
+# fish
+meow completions fish > ~/.config/fish/completions/meow.fish
+
+# PowerShell (add to your profile)
+meow completions powershell | Out-String | Invoke-Expression
+```
+
+Restart the shell after installing the script.
 
 ### First check
 
@@ -215,10 +236,10 @@ If both sides changed the same lines, `meow resolve` walks through the conflict 
 
 ### Undo, discard, recover
 
-- `meow undo` takes back your last save or action. Sent saves are never rewritten; Meow offers a reversing save instead.
+- `meow undo` takes back your last save or action — including a combine whose conflicts you just resolved. Sent saves are never rewritten; Meow offers a reversing save instead.
 - `meow redo` puts back what you just undid.
 - `meow discard` throws away unsaved changes. Tracked files are restored, untracked files move to Meow's trash.
-- `meow recover` lists safety copies and discarded work from the last 30 days and brings it back.
+- `meow recover` lists safety copies, discarded work, and unsaved changes Meow set aside while getting new saves, and brings them back. Run `meow recover 2` to bring back item 2 directly.
 
 ```text
   Recoverable work
@@ -269,6 +290,7 @@ meow help --git        # the full translation table
 | `meow doctor` | Check that everything is set up |
 | `meow learn` | Practice in a safe sandbox |
 | `meow help` | Plain-language help |
+| `meow completions <shell>` | Print a tab-completion script |
 
 Git users can use the familiar names too — `commit`, `push`, `pull`, `clone`, `diff`, `log`, `switch`, `checkout`, `combine`, and `init` are hidden aliases. Meow will not advertise them, but it will not fight you either.
 
@@ -294,7 +316,7 @@ Before anything that could change or remove local work — `get`, `merge`, a bra
 
 - The last **20** snapshots are kept, plus anything younger than **30 days**.
 - Discarded untracked files move to a private trash.
-- `meow recover` restores either one.
+- `meow recover` restores either one; `meow recover <n>` picks it from the list without a prompt.
 - `meow recover --purge` removes them permanently, after asking.
 
 Sent history is never rewritten. If you undo a save that has already been sent, Meow offers a new save that reverses it instead.
