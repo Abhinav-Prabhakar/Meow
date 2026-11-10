@@ -21,7 +21,8 @@ pub fn run(ui: &Ui) -> Result<i32> {
     }
     let Some(branch) = status.branch.clone() else {
         ui.failure("You're looking at an old save, not a branch.");
-        ui.next(&[("meow branch main", "go back to your branch")]);
+        let back = format!("meow branch {}", repo.suggested_branch());
+        ui.next(&[(back.as_str(), "go back to your branch")]);
         return Ok(1);
     };
     if !repo.has_commits() {
@@ -95,7 +96,7 @@ fn push(
     } else {
         vec!["push", "-u", remote, branch]
     };
-    let out = repo.git.run_main(&args)?;
+    let out = repo.git.run_progress(&args, "Sending")?;
     if !out.success() {
         return handle_push_failure(ui, repo, &out, remote, branch, count);
     }
@@ -121,7 +122,10 @@ fn push(
     let _ = journal.record(&repo.git_dir, action);
 
     if ui.plain {
-        println!("sent {branch} {label} {count} saves");
+        println!(
+            "sent {branch} {label} {}",
+            crate::util::count(count, "save")
+        );
         return Ok(0);
     }
     ui.success("Sent. Your team can see your work now.");
@@ -226,7 +230,9 @@ fn protected(ui: &Ui, repo: &Repo, remote: &str, branch: &str, _count: usize) ->
         return Ok(1);
     }
     repo.git.check(&["switch", "-c", &new_branch])?;
-    let out = repo.git.run_main(&["push", "-u", remote, &new_branch])?;
+    let out = repo
+        .git
+        .run_progress(&["push", "-u", remote, &new_branch], "Sending")?;
     if !out.success() {
         ui.failure("The new branch couldn't be sent.");
         for line in out.stderr.lines().take(12) {
@@ -401,7 +407,9 @@ fn link_existing(ui: &Ui, repo: &Repo, branch: &str) -> Result<i32> {
     } else {
         repo.git.check(&["remote", "add", "origin", &url])?;
     }
-    let out = repo.git.run_main(&["push", "-u", "origin", branch])?;
+    let out = repo
+        .git
+        .run_progress(&["push", "-u", "origin", branch], "Sending")?;
     if !out.success() {
         let err = GitError {
             stdout: out.stdout.clone(),

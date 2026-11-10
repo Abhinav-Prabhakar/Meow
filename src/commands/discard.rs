@@ -140,15 +140,11 @@ pub fn run(ui: &Ui, paths: &[String], all: bool) -> Result<i32> {
     let _ = journal.record(&repo.git_dir, action);
 
     if ui.plain {
-        println!(
-            "discarded {} {}",
-            selected.len(),
-            selected
-                .iter()
-                .map(|f| f.path.clone())
-                .collect::<Vec<_>>()
-                .join(" ")
-        );
+        // One path per line keeps output parseable even when names contain spaces.
+        println!("discarded {}", selected.len());
+        for file in &selected {
+            println!("path {}", file.path);
+        }
         return Ok(0);
     }
     ui.success(format!("Threw away {}.", count(selected.len(), "change")));

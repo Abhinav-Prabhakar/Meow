@@ -21,6 +21,9 @@ impl Sandbox {
         sandbox.git(&["init", "-q", "-b", "main"]);
         sandbox.git(&["config", "user.name", "Ana Lima"]);
         sandbox.git(&["config", "user.email", "ana@example.com"]);
+        // Keep byte-level assertions identical on Windows, where Git may
+        // otherwise rewrite line endings on checkout.
+        sandbox.git(&["config", "core.autocrlf", "false"]);
         sandbox
     }
 
@@ -590,4 +593,275 @@ fn doctor_report_and_learn_work_without_a_terminal() {
     let text = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     assert!(text.contains("learn chapters 8"));
+}
+
+#[test]
+fn paths_with_spaces_save_list_and_discard_cleanly() {
+    let s = Sandbox::new();
+    s.write("hello world.txt", "one\n");
+    s.write("scratch note.md", "temp\n");
+    s.plain().args(["save", "Spaces"]).assert().success();
+
+    s.write("hello world.txt", "one\ntwo\n");
+    s.plain()
+        .args(["changes", "hello world.txt"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("hello world.txt"));
+    s.plain()
+        .args(["save", "--only", "hello world.txt", "Only one"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Only one"));
+    assert!(s.log().contains("Only one"));
+
+    s.write("scratch note.md", "changed\n");
+    s.plain()
+        .args(["discard", "--all"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("path scratch note.md"));
+    assert_eq!(s.read("scratch note.md"), "temp\n");
+}
+
+#[test]
+fn completions_print_a_script_and_reject_unknown_shells() {
+    let s = Sandbox::new();
+    let output = s
+        .meow()
+        .args(["completions", "bash"])
+        .output()
+        .expect("runs");
+    assert!(output.status.success());
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.contains("_meow"));
+
+    s.meow().args(["completions", "nonsense"]).assert().code(2);
+}
+
+#[test]
+fn get_overlap_can_keep_the_unsaved_work() {
+    let s = Sandbox::new();
+    s.commit("shared.txt", "shared\n", "First");
+
+    let home = s._temp.path().join("home.git");
+    let out = StdCommand::new("git")
+        .args(["init", "-q", "--bare", home.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    s.git(&["remote", "add", "origin", home.to_str().unwrap()]);
+    s.plain().arg("send").assert().success();
+
+    let clone = s._temp.path().join("friend");
+    let mut cmd = Command::cargo_bin("meow").unwrap();
+    cmd.current_dir(s._temp.path())
+        .env("HOME", s._temp.path())
+        .args([
+            "--plain",
+            "get",
+            home.to_str().unwrap(),
+            "--folder",
+            "friend",
+        ]);
+    cmd.assert().success();
+
+    let friend = Sandbox {
+        _temp: TempDir::new().unwrap(),
+        dir: clone,
+    };
+    friend.git(&["config", "user.name", "Friend"]);
+    friend.git(&["config", "user.email", "friend@example.com"]);
+    friend.write("shared.txt", "theirs\n");
+    friend.git(&["add", "-A"]);
+    friend.git(&["commit", "-q", "-m", "Their work"]);
+    friend.git(&["push", "-q"]);
+
+    s.write("shared.txt", "mine\n");
+    s.plain()
+        .arg("get")
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("meow resolve"));
+
+    s.plain().args(["resolve", "--ours"]).assert().success();
+    assert_eq!(s.read("shared.txt"), "mine\n");
+    assert!(s.git(&["stash", "list"]).trim().is_empty());
+}
+
+#[test]
+fn undo_after_a_resolved_combine_returns_to_before_it() {
+    let s = Sandbox::new();
+    s.commit("f.txt", "base\n", "Base");
+    s.plain().args(["branch", "feature"]).assert().success();
+    s.commit("f.txt", "feature\n", "Feature");
+    s.plain().args(["branch", "main"]).assert().success();
+    s.commit("f.txt", "main\n", "Main");
+
+    s.plain()
+        .args(["merge", "feature", "--yes"])
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("conflicts"));
+    // Undoing a half-finished combine would fight the open operation.
+    s.plain()
+        .arg("undo")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("meow cancel"));
+
+    s.plain().args(["resolve", "--both"]).assert().success();
+    assert!(s.log().contains("Merge branch 'feature'"));
+
+    s.plain().arg("undo").assert().success();
+    assert_eq!(s.read("f.txt"), "main\n");
+    assert!(!s.log().contains("Merge branch 'feature'"));
+    assert_eq!(s.status().trim(), "");
+}
+
+#[test]
+fn undo_after_a_set_aside_overlap_restores_the_unsaved_work() {
+    let s = Sandbox::new();
+    s.commit("shared.txt", "shared\n", "First");
+
+    let home = s._temp.path().join("home.git");
+    let out = StdCommand::new("git")
+        .args(["init", "-q", "--bare", home.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    s.git(&["remote", "add", "origin", home.to_str().unwrap()]);
+    s.plain().arg("send").assert().success();
+
+    let clone = s._temp.path().join("friend");
+    let mut cmd = Command::cargo_bin("meow").unwrap();
+    cmd.current_dir(s._temp.path())
+        .env("HOME", s._temp.path())
+        .args([
+            "--plain",
+            "get",
+            home.to_str().unwrap(),
+            "--folder",
+            "friend",
+        ]);
+    cmd.assert().success();
+
+    let friend = Sandbox {
+        _temp: TempDir::new().unwrap(),
+        dir: clone,
+    };
+    friend.git(&["config", "user.name", "Friend"]);
+    friend.git(&["config", "user.email", "friend@example.com"]);
+    friend.write("shared.txt", "theirs\n");
+    friend.git(&["add", "-A"]);
+    friend.git(&["commit", "-q", "-m", "Their work"]);
+    friend.git(&["push", "-q"]);
+
+    s.write("shared.txt", "mine\n");
+    s.plain().arg("get").assert().code(1);
+
+    s.plain().args(["resolve", "--both"]).assert().success();
+    assert!(s.read("shared.txt").contains("mine"));
+    assert!(s.read("shared.txt").contains("theirs"));
+
+    s.plain().arg("undo").assert().success();
+    assert_eq!(s.read("shared.txt"), "mine\n");
+    // `trim()` removes the leading space of an unstaged ` M`.
+    assert_eq!(s.status().trim(), "M shared.txt");
+    assert!(
+        s.git(&["stash", "list"]).trim().is_empty(),
+        "the set-aside copy is redundant once the snapshot is back"
+    );
+}
+
+#[test]
+fn recover_can_bring_back_a_numbered_item_without_prompting() {
+    let s = Sandbox::new();
+    s.commit("a.txt", "one\n", "First");
+    s.write("draft.txt", "draft\n");
+    s.plain().args(["discard", "draft.txt"]).assert().success();
+    assert!(!s.dir.join("draft.txt").exists());
+
+    let list = s.plain().arg("recover").output().unwrap();
+    assert!(list.status.success());
+    let text = String::from_utf8_lossy(&list.stdout);
+    let trash_index = text
+        .lines()
+        .find(|line| line.starts_with("trash "))
+        .and_then(|line| line.split_whitespace().nth(1))
+        .expect("a trash entry")
+        .to_string();
+
+    s.plain()
+        .args(["recover", &trash_index])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("recovered 1 file"));
+    assert_eq!(s.read("draft.txt"), "draft\n");
+
+    s.plain()
+        .args(["recover", "99"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("to recover"));
+
+    // Undoing the recovery removes the untracked file again.
+    s.plain().arg("undo").assert().success();
+    assert!(!s.dir.join("draft.txt").exists());
+}
+
+#[test]
+fn cancel_after_a_get_puts_the_set_aside_work_back() {
+    let s = Sandbox::new();
+    std::fs::write(s.dir.join("conflict.txt"), "base\n").unwrap();
+    std::fs::write(s.dir.join("other.txt"), "keep\n").unwrap();
+    s.git(&["add", "-A"]);
+    s.git(&["commit", "-q", "-m", "First"]);
+
+    let home = s._temp.path().join("home.git");
+    let out = StdCommand::new("git")
+        .args(["init", "-q", "--bare", home.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    s.git(&["remote", "add", "origin", home.to_str().unwrap()]);
+    s.plain().arg("send").assert().success();
+
+    let clone = s._temp.path().join("friend");
+    let mut cmd = Command::cargo_bin("meow").unwrap();
+    cmd.current_dir(s._temp.path())
+        .env("HOME", s._temp.path())
+        .args([
+            "--plain",
+            "get",
+            home.to_str().unwrap(),
+            "--folder",
+            "friend",
+        ]);
+    cmd.assert().success();
+
+    let friend = Sandbox {
+        _temp: TempDir::new().unwrap(),
+        dir: clone,
+    };
+    friend.git(&["config", "user.name", "Friend"]);
+    friend.git(&["config", "user.email", "friend@example.com"]);
+    friend.write("conflict.txt", "theirs\n");
+    friend.git(&["add", "-A"]);
+    friend.git(&["commit", "-q", "-m", "Their work"]);
+    friend.git(&["push", "-q"]);
+
+    s.write("conflict.txt", "local\n");
+    s.git(&["add", "-A"]);
+    s.git(&["commit", "-q", "-m", "Local work"]);
+    s.write("other.txt", "unsaved\n");
+
+    s.plain().arg("get").assert().code(1);
+    assert!(s.status().contains("UU conflict.txt"));
+
+    s.plain().arg("cancel").assert().success();
+    assert_eq!(s.read("conflict.txt"), "local\n");
+    assert_eq!(s.read("other.txt"), "unsaved\n");
+    assert!(s.git(&["stash", "list"]).trim().is_empty());
+    assert_eq!(s.status().trim(), "M other.txt");
 }

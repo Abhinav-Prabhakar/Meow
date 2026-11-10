@@ -180,10 +180,11 @@ impl Ui {
             println!("{text}");
         } else {
             println!("  {}", self.bold(text));
+            let rule = if self.ascii { "-" } else { "─" };
             println!(
                 "  {}",
                 self.paint(
-                    "─".repeat(self.width().min(60).saturating_sub(2)),
+                    rule.repeat(self.width().min(60).saturating_sub(2)),
                     Paint::Dim
                 )
             );
@@ -396,7 +397,7 @@ impl Ui {
             return;
         }
         let pager = env::var("PAGER").unwrap_or_else(|_| "less -R".to_string());
-        let mut parts = pager.split_whitespace();
+        let mut parts = crate::util::split_command(&pager).into_iter();
         let Some(bin) = parts.next() else {
             print!("{content}");
             return;

@@ -94,10 +94,10 @@ fn show_list(ui: &Ui, journal: &Journal) -> Result<i32> {
     ui.title("Recent actions");
     ui.blank();
     for action in actions {
-        let undoable = if action.kind == "send" {
-            ui.dim("can't be undone")
-        } else {
+        let undoable = if undoable_kind(&action.kind) {
             ui.green("undoable")
+        } else {
+            ui.dim("can't be undone")
         };
         ui.line(format!(
             "  {}  {}{}{}",
@@ -110,6 +110,22 @@ fn show_list(ui: &Ui, journal: &Journal) -> Result<i32> {
     Ok(0)
 }
 
+/// Kinds that `undo` can actually reverse.
+fn undoable_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "save"
+            | "discard"
+            | "get"
+            | "merge"
+            | "branch"
+            | "branch-delete"
+            | "ignore"
+            | "restore"
+            | "recover"
+    )
+}
+
 fn undo_one(ui: &Ui, repo: &Repo, action: &Action) -> Result<Outcome> {
     match action.kind.as_str() {
         "save" => undo_save(ui, repo, action),
@@ -119,13 +135,19 @@ fn undo_one(ui: &Ui, repo: &Repo, action: &Action) -> Result<Outcome> {
         "branch-delete" => undo_branch_delete(repo, action),
         "ignore" => undo_ignore(repo, action),
         "restore" => undo_restore(repo, action),
+        "recover" => undo_recover(repo, action),
         "send" => Ok(Outcome::Refused(
             "Sending can't be undone — the work is already online. Your local copy is safe."
                 .to_string(),
         )),
-        other => Ok(Outcome::Refused(format!(
-            "Meow doesn't know how to undo a '{other}' action. Nothing was changed."
-        ))),
+        "cancel" => Ok(Outcome::Refused(
+            "Cancelling a combine can't be undone. Both branches are exactly as they were — \
+             run `meow merge` again to combine them."
+                .to_string(),
+        )),
+        _ => Ok(Outcome::Refused(
+            "Meow can't undo that action. Nothing was changed.".to_string(),
+        )),
     }
 }
 
@@ -236,15 +258,20 @@ fn undo_sent(ui: &Ui, repo: &Repo, action: &Action) -> Result<Outcome> {
 }
 
 fn undo_discard(repo: &Repo, action: &Action) -> Result<Outcome> {
+    let had_snapshot = action.snapshot.is_some();
     if let Some(snapshot) = &action.snapshot {
         journal::restore_snapshot(repo, snapshot, false)?;
     }
-    if let Some(ids) = action.data.get("trash").and_then(|v| v.as_array()) {
-        for id in ids {
-            if let Some(id) = id.as_str() {
-                for meta in journal::list_trash(&repo.git_dir) {
-                    if meta.id == id {
-                        let _ = journal::restore_trash(repo, &meta, None);
+    // A snapshot is a complete copy of the working tree, untracked files
+    // included. Restoring the trash on top would leave duplicates behind.
+    if !had_snapshot {
+        if let Some(ids) = action.data.get("trash").and_then(|v| v.as_array()) {
+            for id in ids {
+                if let Some(id) = id.as_str() {
+                    for meta in journal::list_trash(&repo.git_dir) {
+                        if meta.id == id {
+                            let _ = journal::restore_trash(repo, &meta, None);
+                        }
                     }
                 }
             }
@@ -256,6 +283,13 @@ fn undo_discard(repo: &Repo, action: &Action) -> Result<Outcome> {
 }
 
 fn undo_sync(repo: &Repo, action: &Action) -> Result<Outcome> {
+    // Undoing a combine whose conflicts are still open would fight the
+    // half-finished operation. Cancel it first.
+    if repo.status()?.operation.is_some() {
+        return Ok(Outcome::Refused(
+            "A combine is still in progress. Run `meow cancel` first, then undo.".to_string(),
+        ));
+    }
     let Some(before) = &action.head_before else {
         return Ok(Outcome::Refused(
             "Meow can't tell what this project looked like before that action.".to_string(),
@@ -271,6 +305,14 @@ fn undo_sync(repo: &Repo, action: &Action) -> Result<Outcome> {
         journal::restore_snapshot(repo, snapshot, true)?;
     } else {
         repo.git.check(&["reset", "--hard", before])?;
+    }
+    // Put the index back with the branch; the restored files are unsaved work
+    // again, exactly as they were before.
+    let _ = repo.git.run(&["reset", "--quiet"]);
+    // The snapshot already holds the unsaved work, so a copy Meow set aside
+    // for `meow get` is now redundant.
+    if let Some(reference) = crate::commands::resolve::set_aside_stash(repo) {
+        let _ = repo.git.run(&["stash", "drop", "--quiet", &reference]);
     }
     Ok(Outcome::Done(
         "Back to exactly where you were before.".to_string(),
@@ -373,6 +415,7 @@ fn undo_ignore(repo: &Repo, action: &Action) -> Result<Outcome> {
 fn undo_restore(repo: &Repo, action: &Action) -> Result<Outcome> {
     if let Some(snapshot) = &action.snapshot {
         journal::restore_snapshot(repo, snapshot, true)?;
+        remove_created_since(repo, snapshot, action);
         Ok(Outcome::Done(
             "The project is back to how it was before the older version was brought back."
                 .to_string(),
@@ -381,6 +424,45 @@ fn undo_restore(repo: &Repo, action: &Action) -> Result<Outcome> {
         Ok(Outcome::Refused(
             "Meow can't find the snapshot for that action.".to_string(),
         ))
+    }
+}
+
+fn undo_recover(repo: &Repo, action: &Action) -> Result<Outcome> {
+    if let Some(snapshot) = &action.snapshot {
+        journal::restore_snapshot(repo, snapshot, true)?;
+        remove_created_since(repo, snapshot, action);
+        Ok(Outcome::Done(
+            "The project is back to how it was before those files came back.".to_string(),
+        ))
+    } else {
+        Ok(Outcome::Refused(
+            "Meow can't find the snapshot for that action.".to_string(),
+        ))
+    }
+}
+
+/// Remove files an action brought back that the target snapshot doesn't know
+/// about. `git restore --worktree` cannot remove untracked files by itself.
+fn remove_created_since(repo: &Repo, snapshot: &str, action: &Action) {
+    let Some(files) = action.data.get("files").and_then(|v| v.as_array()) else {
+        return;
+    };
+    for path in files.iter().filter_map(|v| v.as_str()) {
+        let full = repo.root.join(path);
+        if !full.exists() && !full.is_symlink() {
+            continue;
+        }
+        let in_snapshot = repo
+            .git
+            .probe_bool(&["cat-file", "-e", &format!("{snapshot}:{path}")]);
+        if in_snapshot {
+            continue;
+        }
+        if full.is_dir() {
+            let _ = std::fs::remove_dir_all(&full);
+        } else {
+            let _ = std::fs::remove_file(&full);
+        }
     }
 }
 

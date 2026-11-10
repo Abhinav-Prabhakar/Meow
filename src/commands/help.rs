@@ -185,10 +185,15 @@ const ENTRIES: &[Entry] = &[
     Entry {
         name: "recover",
         summary: "Find work you thought you lost.",
-        examples: &["meow recover", "meow recover --purge"],
+        examples: &[
+            "meow recover",
+            "meow recover 2",
+            "meow recover --purge",
+        ],
         git: "restores from Meow's private snapshots and trash",
         mistakes: &[
             "Current files are snapshotted before a restore, so recovery is reversible.",
+            "Pass the number from the list to bring an item back without a prompt.",
             "`--purge` is permanent and asks first.",
         ],
     },
@@ -218,6 +223,21 @@ const ENTRIES: &[Entry] = &[
         examples: &["meow version", "meow version --verbose"],
         git: "git --version",
         mistakes: &["Upgrade through the package manager you installed Meow with."],
+    },
+    Entry {
+        name: "completions",
+        summary: "Print a tab-completion script for your shell.",
+        examples: &[
+            "meow completions bash",
+            "meow completions zsh",
+            "meow completions fish",
+            "meow completions powershell",
+        ],
+        git: "prints a shell script; it doesn't run Git",
+        mistakes: &[
+            "The script is printed on stdout; redirect it into your shell's completion folder.",
+            "Restart the shell, or re-source your completion setup, to see the commands.",
+        ],
     },
 ];
 
@@ -263,6 +283,7 @@ fn overview(ui: &Ui) -> Result<i32> {
         ("meow recover", "find work you thought you lost"),
         ("meow doctor", "check your setup"),
         ("meow learn", "practice safely"),
+        ("meow completions bash", "shell tab-completion"),
     ];
     section(ui, "Everyday", &everyday);
     ui.blank();

@@ -40,7 +40,7 @@ fn clone_project(ui: &Ui, link: &str, folder: Option<&str>) -> Result<i32> {
 
     let cwd = std::env::current_dir()?;
     let git = crate::git::Git::new(&cwd, ui);
-    let out = git.run_main(&["clone", "--progress", &url, &name])?;
+    let out = git.run_progress(&["clone", "--progress", &url, &name], "Getting")?;
     if !out.success() {
         let err = GitError {
             stdout: out.stdout.clone(),
@@ -62,7 +62,7 @@ fn clone_project(ui: &Ui, link: &str, folder: Option<&str>) -> Result<i32> {
     let repo = Repo::discover(&dest, ui)?;
     let count = repo.as_ref().map(|r| r.commit_count()).unwrap_or(0);
     if ui.plain {
-        println!("got {name} {count} saves");
+        println!("got {name} {}", crate::util::count(count, "save"));
         return Ok(0);
     }
 
@@ -90,7 +90,8 @@ fn pull_project(ui: &Ui) -> Result<i32> {
     let status = repo.status()?;
     let Some(branch) = status.branch.clone() else {
         ui.failure("You're looking at an old save, not a branch.");
-        ui.next(&[("meow branch main", "go back to your branch")]);
+        let back = format!("meow branch {}", repo.suggested_branch());
+        ui.next(&[(back.as_str(), "go back to your branch")]);
         return Ok(1);
     };
     let Some(home) = repo.home_remote() else {
@@ -143,7 +144,9 @@ fn pull_project(ui: &Ui) -> Result<i32> {
         ui.blank();
     }
 
-    let fetch = repo.git.run_main(&["fetch", &home.name])?;
+    let fetch = repo
+        .git
+        .run_progress(&["fetch", "--progress", &home.name], "Getting")?;
     if !fetch.success() {
         if stashed {
             let _ = repo.git.run(&["stash", "pop", "--quiet"]);
@@ -193,6 +196,7 @@ fn pull_project(ui: &Ui) -> Result<i32> {
             } else {
                 println!("conflict");
             }
+            record_conflict(&repo, &home.name, &branch, &label, head_before, snapshot);
             return Ok(1);
         }
         if stashed {
@@ -212,19 +216,29 @@ fn pull_project(ui: &Ui) -> Result<i32> {
     if stashed {
         let pop = repo.git.run(&["stash", "pop", "--quiet"])?;
         if !pop.success() {
-            // A plain pop refuses when a new save introduced the same path.
-            // Applying is softer: it merges what it can and leaves conflicts
-            // for `meow resolve`.
+            // A failed pop can still leave the changes in the working tree with
+            // conflict markers, and it keeps the stash entry in that case.
+            if repo.status()?.conflicted() {
+                ui.warning("Your unsaved changes overlap with the new saves.");
+                ui.blank();
+                ui.line("Nothing is lost. Let's sort them out one at a time.");
+                ui.next(&[("meow resolve", "combine your unsaved work")]);
+                record_conflict(&repo, &home.name, &branch, &label, head_before, snapshot);
+                return Ok(1);
+            }
+            // Otherwise try the softer `apply`, which handles an untracked file
+            // that the incoming saves introduced under the same name.
             let apply = repo.git.run(&["stash", "apply", "--quiet"])?;
             if apply.success() {
-                let _ = repo.git.run(&["stash", "drop", "--quiet", "stash@{0}"]);
                 if repo.status()?.conflicted() {
                     ui.warning("Your unsaved changes overlap with the new saves.");
                     ui.blank();
                     ui.line("Nothing is lost. Let's sort them out one at a time.");
                     ui.next(&[("meow resolve", "combine your unsaved work")]);
+                    record_conflict(&repo, &home.name, &branch, &label, head_before, snapshot);
                     return Ok(1);
                 }
+                let _ = repo.git.run(&["stash", "drop", "--quiet", "stash@{0}"]);
                 ui.success("Your unsaved changes are back in place.");
             } else {
                 ui.warning("Your unsaved changes are still set aside safely.");
@@ -355,6 +369,26 @@ fn report_git(ui: &Ui, out: &crate::git::GitOutput, fallback: &str) -> Result<i3
         ui.line(failure.hint());
     }
     Ok(1)
+}
+
+/// Record the attempt before returning for conflict help, so resolving the
+/// overlap and then running `meow undo` returns to the pre-get state.
+#[allow(clippy::too_many_arguments)]
+fn record_conflict(
+    repo: &Repo,
+    remote: &str,
+    branch: &str,
+    label: &str,
+    head_before: Option<String>,
+    snapshot: String,
+) {
+    let mut action = Action::new("get", format!("Brought in saves from {label}"));
+    action.head_before = head_before;
+    action.head_after = repo.head();
+    action.snapshot = Some(snapshot);
+    action.data = json!({ "remote": remote, "branch": branch, "conflicted": true });
+    let mut journal = Journal::load(&repo.git_dir);
+    let _ = journal.record(&repo.git_dir, action);
 }
 
 fn is_empty(dir: &Path) -> bool {

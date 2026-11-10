@@ -259,6 +259,36 @@ impl Repo {
         self.home_remote().map(|r| pretty_remote(&r.url))
     }
 
+    /// The branch to name when someone needs to get back onto one.
+    pub fn suggested_branch(&self) -> String {
+        if let Some(list) = self.git.probe(&[
+            "branch",
+            "--sort=-committerdate",
+            "--format=%(refname:short)",
+        ]) {
+            let names: Vec<&str> = list
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty() && !line.starts_with('(') && *line != "HEAD")
+                .collect();
+            for preferred in ["main", "master"] {
+                if names.contains(&preferred) {
+                    return preferred.to_string();
+                }
+            }
+            if let Some(first) = names.first() {
+                return (*first).to_string();
+            }
+        }
+        if let Some(name) = self.git.probe(&["config", "--get", "init.defaultBranch"]) {
+            let name = name.trim();
+            if !name.is_empty() {
+                return name.to_string();
+            }
+        }
+        "main".to_string()
+    }
+
     pub fn branches(&self) -> Result<Vec<Branch>> {
         let current = self.branch().unwrap_or_default();
         let merged: Vec<String> = self
@@ -502,12 +532,14 @@ fn parse_v2_change(rec: &str) -> Option<FileChange> {
     let mut chars = xy.chars();
     let x = chars.next().unwrap_or('.');
     let y = chars.next().unwrap_or('.');
+    // The path is the last field and may itself contain spaces, so take the
+    // remainder rather than a single space-delimited token.
     let path = if fields[0] == "u" {
         rec.splitn(11, ' ').nth(10).unwrap_or("").to_string()
     } else if fields[0] == "2" {
         rec.splitn(10, ' ').nth(9).unwrap_or("").to_string()
     } else {
-        fields.get(8).copied().unwrap_or("").to_string()
+        rec.splitn(9, ' ').nth(8).unwrap_or("").to_string()
     };
     if path.is_empty() {
         return None;
@@ -584,6 +616,15 @@ pub fn normalize_link(input: &str) -> String {
     if parts.len() == 2 && !parts[0].is_empty() && !parts[1].is_empty() {
         return format!("https://github.com/{}/{}.git", parts[0], parts[1]);
     }
+    // `github.com/owner/repo`, `gitlab.com/group/project`, and similar links
+    // are written without a scheme often enough to be worth accepting.
+    if parts.len() >= 3
+        && !parts[0].is_empty()
+        && parts[0].contains('.')
+        && !parts[0].chars().all(|c| c.is_ascii_digit() || c == '.')
+    {
+        return format!("https://{s}");
+    }
     s.to_string()
 }
 
@@ -611,5 +652,55 @@ pub fn folder_name_from_link(link: &str) -> String {
         "project".to_string()
     } else {
         cleaned
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn links_without_a_scheme_gain_https() {
+        assert_eq!(
+            normalize_link("github.com/ana/portfolio"),
+            "https://github.com/ana/portfolio"
+        );
+        assert_eq!(
+            normalize_link("ana/portfolio"),
+            "https://github.com/ana/portfolio.git"
+        );
+        assert_eq!(
+            normalize_link("https://gitlab.com/a/b"),
+            "https://gitlab.com/a/b"
+        );
+        assert_eq!(normalize_link("./site"), "./site");
+        assert_eq!(normalize_link("/tmp/site"), "/tmp/site");
+        // A relative folder that happens to start with digits is not a host.
+        assert_eq!(
+            normalize_link("192.168.1.2/share/repo"),
+            "192.168.1.2/share/repo"
+        );
+    }
+
+    #[test]
+    fn folder_names_are_safe() {
+        assert_eq!(
+            folder_name_from_link("https://github.com/ana/portfolio.git"),
+            "portfolio"
+        );
+        assert_eq!(
+            folder_name_from_link("git@github.com:ana/my site.git"),
+            "my-site"
+        );
+    }
+
+    #[test]
+    fn status_paths_keep_spaces() {
+        let raw = "# branch.head main\0".to_string()
+            + "1 .M N... 100644 100644 100644 aaa bbb hello world.txt\0"
+            + "? scratch note.md\0";
+        let status = parse_status(&raw);
+        let paths: Vec<&str> = status.files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, vec!["hello world.txt", "scratch note.md"]);
     }
 }

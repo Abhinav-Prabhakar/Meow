@@ -114,7 +114,8 @@ fn home(ui: &Ui, repo: &Repo) -> Result<()> {
     // Where am I?
     if status.detached {
         ui.line("You're looking at an old save, not a branch.");
-        ui.next(&[("meow branch main", "go back to your branch")]);
+        let back = format!("meow branch {}", repo.suggested_branch());
+        ui.next(&[(back.as_str(), "go back to your branch")]);
         return Ok(());
     }
     let branch = status.branch.clone().unwrap_or_else(|| "main".to_string());
@@ -208,8 +209,20 @@ fn home(ui: &Ui, repo: &Repo) -> Result<()> {
 }
 
 fn plain_home(ui: &Ui, repo: &Repo, status: &Status, path: &str) {
-    let branch = status.branch.clone().unwrap_or_else(|| "main".to_string());
     println!("meow {path}");
+    if status.detached {
+        println!("branch (detached)");
+        let stat = repo.diff_stat();
+        println!(
+            "unsaved {} +{} -{}",
+            status.files.len(),
+            stat.added,
+            stat.deleted
+        );
+        println!("next: meow branch {}", repo.suggested_branch());
+        return;
+    }
+    let branch = status.branch.clone().unwrap_or_else(|| "main".to_string());
     println!("branch {branch}");
     if let Some(home) = repo.home_label() {
         println!("home {home}");

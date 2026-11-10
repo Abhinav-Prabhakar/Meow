@@ -201,6 +201,9 @@ pub enum Command {
 
     /// Find work you thought you lost.
     Recover {
+        /// Bring back the numbered item from the list, without asking.
+        item: Option<usize>,
+
         /// Permanently empty the trash and prune old snapshots.
         #[arg(long)]
         purge: bool,
@@ -235,6 +238,12 @@ pub enum Command {
         /// Include paths and configuration locations.
         #[arg(long)]
         verbose: bool,
+    },
+
+    /// Print a shell completion script.
+    Completions {
+        /// bash, zsh, fish, or powershell.
+        shell: clap_complete::Shell,
     },
 
     /// Where am I, and what next? (same as running `meow`).

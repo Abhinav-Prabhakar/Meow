@@ -124,7 +124,7 @@ fn untracked_diff(repo: &Repo, path: &str, color: bool) -> String {
         "--no-index",
         &format!("--color={color}"),
         "--",
-        "/dev/null",
+        dev_null(),
         &full.to_string_lossy(),
     ]);
     match out {
@@ -136,6 +136,15 @@ fn untracked_diff(repo: &Repo, path: &str, color: bool) -> String {
         }
         Ok(out) if !out.stderr.is_empty() => format!("New file: {path}\n"),
         _ => format!("New file: {path}\n"),
+    }
+}
+
+/// Git understands both names, but only one exists on each platform.
+fn dev_null() -> &'static str {
+    if cfg!(windows) {
+        "NUL"
+    } else {
+        "/dev/null"
     }
 }
 

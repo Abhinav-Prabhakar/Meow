@@ -3,6 +3,7 @@
 pub mod branch;
 pub mod cancel;
 pub mod changes;
+pub mod completions;
 pub mod discard;
 pub mod doctor;
 pub mod get;

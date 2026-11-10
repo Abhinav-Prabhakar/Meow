@@ -210,6 +210,23 @@ pub fn run(ui: &Ui, name: &str, yes: bool) -> Result<i32> {
     if !out.success() {
         let after = repo.status()?;
         if after.conflicted() || after.operation.is_some() {
+            // Record the combine as the user's action, so that once the
+            // conflicts are resolved, `meow undo` can take the whole combine
+            // back instead of stopping at an internal resolution step.
+            let mut action =
+                Action::new("merge", format!("Combined {} into {current}", other.name));
+            action.head_before = head_before.clone();
+            action.snapshot = Some(snapshot);
+            action.data = json!({
+                "from": other.name,
+                "into": current,
+                "saves": behind,
+                "linear": fast_forward,
+                "conflicted": true,
+            });
+            let mut journal = Journal::load(&repo.git_dir);
+            let _ = journal.record(&repo.git_dir, action);
+
             if ui.plain {
                 println!(
                     "conflicts {} {}",

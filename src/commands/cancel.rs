@@ -11,6 +11,23 @@ pub fn run(ui: &Ui) -> Result<i32> {
     let repo = require_repo(ui)?;
     let status = repo.status()?;
     let Some(op) = status.operation else {
+        if status.conflicted() {
+            // `meow get` can leave conflicts without a merge in progress: the
+            // new saves applied cleanly, then the set-aside work did not.
+            if ui.plain {
+                println!(
+                    "conflicts {} {}",
+                    status.conflicts.len(),
+                    status.conflicts.join(" ")
+                );
+            } else {
+                ui.failure("There's no combine to cancel.");
+                ui.blank();
+                ui.line("Your unsaved changes overlap with new saves. Nothing is lost.");
+                ui.next(&[("meow resolve", "sort them out one at a time")]);
+            }
+            return Ok(1);
+        }
         if ui.plain {
             println!("nothing to cancel");
         } else {
@@ -48,6 +65,14 @@ pub fn run(ui: &Ui) -> Result<i32> {
                 ui.line("Your files are still intact. Run `meow doctor` for a check.");
                 return Ok(1);
             }
+            // `meow get` may have set unsaved work aside before the combine
+            // began. The abort leaves it in the stash, so put it back.
+            let mut set_aside_lost = false;
+            if let Some(reference) = crate::commands::resolve::set_aside_stash(&repo) {
+                let pop = repo.git.run(&["stash", "pop", "--quiet", &reference])?;
+                set_aside_lost = !pop.success();
+            }
+
             let mut action = Action::new("cancel", "Cancelled a combine");
             action.head_before = head_before.clone();
             action.head_after = repo.head();
@@ -60,7 +85,10 @@ pub fn run(ui: &Ui) -> Result<i32> {
                 return Ok(0);
             }
             ui.success("Cancelled. You're back where you started.");
-            if let Ok(status) = repo.status() {
+            if set_aside_lost {
+                ui.warning("Your unsaved changes are still set aside safely.");
+                ui.next(&[("meow recover", "bring them back")]);
+            } else if let Ok(status) = repo.status() {
                 if status.dirty() {
                     ui.line(ui.dim("Your unsaved changes are still here."));
                     ui.next(&[("meow changes", "review them")]);

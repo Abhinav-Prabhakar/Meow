@@ -4,9 +4,7 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::Result;
-use serde_json::json;
 
-use crate::journal::{self, Action, Journal};
 use crate::repo::Repo;
 use crate::ui::{display_width, pad_right, Sym, Ui};
 use crate::util::{is_binary, open_editor, require_repo, truncate_chars};
@@ -14,6 +12,7 @@ use crate::util::{is_binary, open_editor, require_repo, truncate_chars};
 pub fn run(ui: &Ui, ours: bool, theirs: bool, both: bool, list: bool) -> Result<i32> {
     let repo = require_repo(ui)?;
     let status = repo.status()?;
+    let mode = conflict_mode(&repo, &status);
 
     if list {
         return show_list(ui, &status.conflicts);
@@ -21,12 +20,20 @@ pub fn run(ui: &Ui, ours: bool, theirs: bool, both: bool, list: bool) -> Result<
 
     if status.conflicts.is_empty() {
         if status.operation.is_some() {
-            return finish(ui, &repo, 0);
+            return finish(ui, &repo, 0, mode);
         }
         if ui.plain {
             println!("conflicts 0");
+            if set_aside_stash(&repo).is_some() {
+                println!("set-aside 1");
+            }
         } else {
             ui.line(format!("{} Nothing needs resolving.", ui.sym(Sym::Success)));
+            if set_aside_stash(&repo).is_some() {
+                ui.blank();
+                ui.line("Your unsaved changes are still set aside from an earlier get.");
+                ui.next(&[("meow recover", "bring them back")]);
+            }
         }
         return Ok(0);
     }
@@ -40,23 +47,9 @@ pub fn run(ui: &Ui, ours: bool, theirs: bool, both: bool, list: bool) -> Result<
             Side::Both
         };
         for path in &status.conflicts {
-            apply_side(&repo, path, side)?;
+            apply_side(&repo, path, side, mode)?;
         }
-        if ui.plain {
-            println!("resolved {} files", status.conflicts.len());
-        } else {
-            ui.success(format!(
-                "Resolved {} {}.",
-                status.conflicts.len(),
-                if status.conflicts.len() == 1 {
-                    "file"
-                } else {
-                    "files"
-                }
-            ));
-        }
-        record(&repo, &status.conflicts, side.label())?;
-        return finish(ui, &repo, status.conflicts.len());
+        return finish(ui, &repo, status.conflicts.len(), mode);
     }
 
     if !ui.can_prompt() {
@@ -73,11 +66,11 @@ pub fn run(ui: &Ui, ours: bool, theirs: bool, both: bool, list: bool) -> Result<
         ));
     }
 
-    show_intro(ui, &status.conflicts, &repo)?;
+    show_intro(ui, &status.conflicts, &repo, mode)?;
 
     let mut deferred = Vec::new();
     for (i, path) in status.conflicts.iter().enumerate() {
-        if !resolve_file(ui, &repo, path, i + 1, status.conflicts.len())? {
+        if !resolve_file(ui, &repo, path, i + 1, status.conflicts.len(), mode)? {
             deferred.push(path.clone());
         }
     }
@@ -89,11 +82,50 @@ pub fn run(ui: &Ui, ours: bool, theirs: bool, both: bool, list: bool) -> Result<
             deferred.len(),
             if deferred.len() == 1 { "file" } else { "files" }
         ));
+        if mode == Mode::SetAside {
+            ui.line("Your unsaved changes are still set aside safely.");
+        }
         ui.line("Nothing was lost. Run `meow resolve` when you're ready to continue.");
         return Ok(0);
     }
 
-    finish(ui, &repo, status.conflicts.len())
+    finish(ui, &repo, status.conflicts.len(), mode)
+}
+
+/// Where the two conflicting versions came from.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    /// An ordinary combine of two branches.
+    Merge,
+    /// `meow get` set unsaved work aside and could not put it back cleanly.
+    SetAside,
+}
+
+impl Mode {
+    fn is_set_aside(self) -> bool {
+        self == Mode::SetAside
+    }
+}
+
+/// A combine is the common case. A conflict with no operation in progress and
+/// a Meow set-aside stash is the overlap between unsaved work and new saves.
+fn conflict_mode(repo: &Repo, status: &crate::repo::Status) -> Mode {
+    if status.operation.is_some() || status.conflicts.is_empty() {
+        return Mode::Merge;
+    }
+    if set_aside_stash(repo).is_some() {
+        Mode::SetAside
+    } else {
+        Mode::Merge
+    }
+}
+
+pub(crate) fn set_aside_stash(repo: &Repo) -> Option<String> {
+    let list = repo.git.probe(&["stash", "list", "--format=%gd%x00%gs"])?;
+    list.lines()
+        .find(|line| line.contains("meow: set aside before get"))
+        .and_then(|line| line.split('\0').next())
+        .map(str::to_string)
 }
 
 #[derive(Clone, Copy)]
@@ -101,16 +133,6 @@ enum Side {
     Mine,
     Theirs,
     Both,
-}
-
-impl Side {
-    fn label(self) -> &'static str {
-        match self {
-            Side::Mine => "kept your version",
-            Side::Theirs => "took their version",
-            Side::Both => "kept both versions",
-        }
-    }
 }
 
 fn show_list(ui: &Ui, conflicts: &[String]) -> Result<i32> {
@@ -142,8 +164,7 @@ fn show_list(ui: &Ui, conflicts: &[String]) -> Result<i32> {
     Ok(0)
 }
 
-fn show_intro(ui: &Ui, conflicts: &[String], repo: &Repo) -> Result<()> {
-    let other = merge_source(repo);
+fn show_intro(ui: &Ui, conflicts: &[String], repo: &Repo, mode: Mode) -> Result<()> {
     ui.title(&format!(
         "{} {} your help",
         crate::util::count(conflicts.len(), "file"),
@@ -154,12 +175,17 @@ fn show_intro(ui: &Ui, conflicts: &[String], repo: &Repo) -> Result<()> {
         }
     ));
     ui.blank();
-    match other {
-        Some(name) => ui.line(format!(
-            "You and {} changed the same parts. Nothing is lost.",
-            ui.cyan(&name)
-        )),
-        None => ui.line("Two versions of these files exist. Nothing is lost."),
+    if mode.is_set_aside() {
+        ui.line("Your unsaved changes and the new saves touched the same parts.");
+        ui.line("Nothing is lost. Your unsaved version is on the right.");
+    } else {
+        match merge_source(repo) {
+            Some(name) => ui.line(format!(
+                "You and {} changed the same parts. Nothing is lost.",
+                ui.cyan(&name)
+            )),
+            None => ui.line("Two versions of these files exist. Nothing is lost."),
+        }
     }
     ui.line("Let's go through them one at a time.");
     ui.blank();
@@ -176,7 +202,14 @@ fn merge_source(repo: &Repo) -> Option<String> {
 }
 
 /// Returns true when the file is fully resolved.
-fn resolve_file(ui: &Ui, repo: &Repo, path: &str, index: usize, total: usize) -> Result<bool> {
+fn resolve_file(
+    ui: &Ui,
+    repo: &Repo,
+    path: &str,
+    index: usize,
+    total: usize,
+    mode: Mode,
+) -> Result<bool> {
     let full = repo.root.join(path);
     if !full.exists() {
         // Deleted on one side: the user still chooses.
@@ -194,7 +227,7 @@ fn resolve_file(ui: &Ui, repo: &Repo, path: &str, index: usize, total: usize) ->
         )?;
         match choice {
             0 => {
-                apply_side(repo, path, Side::Mine)?;
+                apply_side(repo, path, Side::Mine, mode)?;
                 return Ok(true);
             }
             1 => {
@@ -227,24 +260,34 @@ fn resolve_file(ui: &Ui, repo: &Repo, path: &str, index: usize, total: usize) ->
         )?;
         match choice {
             0 => {
-                apply_side(repo, path, Side::Mine)?;
+                apply_side(repo, path, Side::Mine, mode)?;
                 Ok(true)
             }
             1 => {
-                apply_side(repo, path, Side::Theirs)?;
+                apply_side(repo, path, Side::Theirs, mode)?;
                 Ok(true)
             }
             _ => Ok(false),
         }
     } else {
-        resolve_text(ui, repo, path, index, total)
+        resolve_text(ui, repo, path, index, total, mode)
     }
 }
 
-fn resolve_text(ui: &Ui, repo: &Repo, path: &str, index: usize, total: usize) -> Result<bool> {
+fn resolve_text(
+    ui: &Ui,
+    repo: &Repo,
+    path: &str,
+    index: usize,
+    total: usize,
+    mode: Mode,
+) -> Result<bool> {
     let full = repo.root.join(path);
     let content = fs::read_to_string(&full).unwrap_or_default();
-    let parsed = parse(&content);
+    let mut parsed = parse(&content);
+    if mode.is_set_aside() {
+        swap_sides(&mut parsed);
+    }
     let conflict_count = parsed
         .iter()
         .filter(|s| matches!(s, Segment::Conflict { .. }))
@@ -276,6 +319,7 @@ fn resolve_text(ui: &Ui, repo: &Repo, path: &str, index: usize, total: usize) ->
                     &mine,
                     &theirs,
                     &label,
+                    mode,
                 )?;
                 match keep {
                     BlockChoice::Mine => push_lines(&mut out, &mine),
@@ -308,10 +352,6 @@ fn resolve_text(ui: &Ui, repo: &Repo, path: &str, index: usize, total: usize) ->
     repo.git.check(&["add", "--", path])?;
     ui.success(format!("{path} is resolved."));
     ui.blank();
-    let mut action = Action::new("resolve", format!("Resolved {path}"));
-    action.data = json!({ "path": path });
-    let mut journal = Journal::load(&repo.git_dir);
-    let _ = journal.record(&repo.git_dir, action);
     Ok(true)
 }
 
@@ -335,6 +375,7 @@ fn ask_block(
     mine: &[String],
     theirs: &[String],
     their_label: &str,
+    mode: Mode,
 ) -> Result<BlockChoice> {
     ui.blank();
     if blocks == 1 {
@@ -345,21 +386,35 @@ fn ask_block(
         ));
     }
     ui.blank();
-    let mine_label = "Your version";
-    let theirs_label = if their_label.is_empty() {
-        "Their version".to_string()
+    let (mine_label, theirs_label, mine_choice, theirs_choice) = if mode.is_set_aside() {
+        (
+            "Your unsaved version".to_string(),
+            "The newer saved version".to_string(),
+            "Keep my unsaved change".to_string(),
+            "Take the newer saved version".to_string(),
+        )
     } else {
-        format!("{}'s version", their_label)
+        let theirs_label = if their_label.is_empty() {
+            "Their version".to_string()
+        } else {
+            format!("{}'s version", their_label)
+        };
+        (
+            "Your version".to_string(),
+            theirs_label.clone(),
+            "Keep mine".to_string(),
+            format!("Take {theirs_label}"),
+        )
     };
-    for line in side_by_side(ui, mine_label, &theirs_label, mine, theirs) {
+    for line in side_by_side(ui, &mine_label, &theirs_label, mine, theirs) {
         ui.line(line);
     }
     ui.blank();
     let choice = ui.select(
         "What should this part say?",
         &[
-            "Keep mine".to_string(),
-            format!("Take {theirs_label}"),
+            mine_choice,
+            theirs_choice,
             "Keep both".to_string(),
             "Open in my editor".to_string(),
             "Decide later".to_string(),
@@ -514,23 +569,34 @@ fn both_separator(path: &str) -> String {
     }
 }
 
-fn apply_side(repo: &Repo, path: &str, side: Side) -> Result<()> {
+fn apply_side(repo: &Repo, path: &str, side: Side, mode: Mode) -> Result<()> {
+    // In a set-aside conflict, stage 2 is the newer saved work and stage 3 is
+    // the unsaved work Meow set aside. "Mine" means the user's unsaved changes.
+    let (mine_flag, theirs_flag) = if mode.is_set_aside() {
+        ("--theirs", "--ours")
+    } else {
+        ("--ours", "--theirs")
+    };
     match side {
         Side::Mine => {
             repo.git
-                .check(&["checkout", "--ours", "--", path])
+                .check(&["checkout", mine_flag, "--", path])
                 .or_else(|_| repo.git.check(&["checkout", "HEAD", "--", path]))?;
         }
         Side::Theirs => {
-            repo.git.check(&["checkout", "--theirs", "--", path])?;
+            repo.git.check(&["checkout", theirs_flag, "--", path])?;
         }
         Side::Both => {
             // Keep both sides *per conflict block*, so shared context above
             // and below the conflict is not duplicated.
             let full = repo.root.join(path);
             let content = fs::read_to_string(&full).unwrap_or_default();
+            let mut parsed = parse(&content);
+            if mode.is_set_aside() {
+                swap_sides(&mut parsed);
+            }
             let mut combined = String::new();
-            for segment in parse(&content) {
+            for segment in parsed {
                 match segment {
                     Segment::Text(text) => combined.push_str(&text),
                     Segment::Conflict { mine, theirs, .. } => {
@@ -547,15 +613,25 @@ fn apply_side(repo: &Repo, path: &str, side: Side) -> Result<()> {
     Ok(())
 }
 
-fn record(repo: &Repo, paths: &[String], how: &str) -> Result<()> {
-    let mut action = Action::new("resolve", format!("Resolved {} files ({how})", paths.len()));
-    action.data = json!({ "paths": paths, "how": how });
-    let mut journal = Journal::load(&repo.git_dir);
-    let _ = journal.record(&repo.git_dir, action);
-    Ok(())
+/// Stash conflicts put the newer saved work on the left and the unsaved work
+/// on the right. Flip them so the labels match what the person chose.
+fn swap_sides(segments: &mut [Segment]) {
+    for segment in segments {
+        if let Segment::Conflict {
+            mine,
+            theirs,
+            label,
+        } = segment
+        {
+            std::mem::swap(mine, theirs);
+            if label.is_empty() || label == "Stashed changes" {
+                *label = "the newer saved version".to_string();
+            }
+        }
+    }
 }
 
-fn finish(ui: &Ui, repo: &Repo, resolved: usize) -> Result<i32> {
+fn finish(ui: &Ui, repo: &Repo, resolved: usize, mode: Mode) -> Result<i32> {
     let status = repo.status()?;
     if status.conflicted() {
         ui.blank();
@@ -568,14 +644,35 @@ fn finish(ui: &Ui, repo: &Repo, resolved: usize) -> Result<i32> {
                 "files"
             }
         ));
+        if mode.is_set_aside() {
+            ui.line("Your unsaved changes are still set aside safely.");
+        }
         return Ok(0);
     }
+
+    if mode.is_set_aside() {
+        // The resolved working tree now holds the parts of the unsaved work the
+        // person kept. The stash copy is therefore redundant.
+        if let Some(reference) = set_aside_stash(repo) {
+            let _ = repo.git.run(&["stash", "drop", "--quiet", &reference]);
+        }
+        // Make the resolution look like ordinary unsaved work again.
+        let _ = repo.git.run(&["reset", "--quiet"]);
+        if ui.plain {
+            println!("resolved {}", crate::util::count(resolved, "file"));
+        } else {
+            ui.success("Your unsaved changes are back in place.");
+            ui.line(ui.dim("They're not saved yet — `meow save` when you're happy."));
+        }
+        return Ok(0);
+    }
+
     let merging = repo.git_dir.join("MERGE_HEAD").exists();
     if !merging {
         if status.operation.is_some() {
             ui.line("All the conflicts are resolved. The operation will continue on its own.");
         } else if ui.plain {
-            println!("resolved {resolved} files");
+            println!("resolved {}", crate::util::count(resolved, "file"));
         } else {
             ui.line(format!(
                 "{} All conflicts are resolved.",
@@ -601,15 +698,6 @@ fn finish(ui: &Ui, repo: &Repo, resolved: usize) -> Result<i32> {
         }
         return Ok(1);
     }
-    let mut action = Action::new(
-        "merge-finish",
-        "Finished a combine after resolving conflicts",
-    );
-    action.head_before = None;
-    action.head_after = repo.head();
-    let mut journal = Journal::load(&repo.git_dir);
-    let _ = journal.record(&repo.git_dir, action);
-
     if ui.plain {
         println!("combined finished");
         return Ok(0);
@@ -639,6 +727,5 @@ fn finish(ui: &Ui, repo: &Repo, resolved: usize) -> Result<i32> {
     if crate::commands::home::unsent_count(repo, &status) > 0 && repo.home_label().is_some() {
         ui.next(&[("meow send", "put the combined work online")]);
     }
-    let _ = journal::create_snapshot(repo, "After resolving conflicts");
     Ok(0)
 }

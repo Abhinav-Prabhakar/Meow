@@ -51,7 +51,11 @@ pub fn run(ui: &Ui, fix: bool, report: bool) -> Result<i32> {
                 Level::Warn => "warn",
                 Level::Fail => "fail",
             };
-            println!("{level} {} {}", check.label, check.detail);
+            if check.detail.is_empty() {
+                println!("{level} {}", check.label);
+            } else {
+                println!("{level} {} - {}", check.label, check.detail);
+            }
         }
         println!("summary {failures} failures {warnings} warnings");
         return Ok(if failures > 0 { 1 } else { 0 });
@@ -220,8 +224,8 @@ fn gather(ui: &Ui) -> Vec<Check> {
         }),
     }
 
-    // Disk space (Unix only, best effort)
-    #[cfg(unix)]
+    // Disk space (best effort; absent where it can't be read)
+    #[cfg(any(unix, windows))]
     if let Some((free, total)) = disk_space(&cwd) {
         let ratio = if total > 0 {
             free as f64 / total as f64
@@ -552,6 +556,24 @@ fn install_hint() -> String {
     } else {
         "Install with your package manager, for example `sudo apt install git`.".to_string()
     }
+}
+
+#[cfg(windows)]
+fn disk_space(path: &std::path::Path) -> Option<(u64, u64)> {
+    let script = "$d = New-Object System.IO.DriveInfo($env:MEOW_DISK_PATH); Write-Output \"$($d.AvailableFreeSpace) $($d.TotalSize)\"";
+    let out = Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .env("MEOW_DISK_PATH", path)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut parts = text.split_whitespace();
+    let free = parts.next()?.parse::<u64>().ok()?;
+    let total = parts.next()?.parse::<u64>().ok()?;
+    Some((free, total))
 }
 
 #[cfg(unix)]

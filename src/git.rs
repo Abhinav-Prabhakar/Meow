@@ -5,8 +5,10 @@
 //! exactly as they would with plain Git.
 
 use std::fmt;
+use std::io::{self, Read, Write};
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{ChildStderr, Command, Stdio};
+use std::thread;
 
 use anyhow::{anyhow, Result};
 
@@ -104,6 +106,53 @@ impl Git {
         Ok(out)
     }
 
+    /// Run a network operation with a single live status line on stderr.
+    ///
+    /// Git's progress output is `\r`-separated, so it is relayed as it arrives
+    /// instead of being buffered until the operation ends. Non-interactive
+    /// output takes the quiet path.
+    pub fn run_progress(&self, args: &[&str], label: &str) -> Result<GitOutput> {
+        let command = render(args);
+        if !self.ui.is_terminal() {
+            return self.run(args);
+        }
+        self.ui.explain(&command);
+        let mut child = Command::new("git")
+            .args(args)
+            .current_dir(&self.cwd)
+            .env("GIT_PAGER", "cat")
+            .env("GIT_OPTIONAL_LOCKS", "0")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| match e.kind() {
+                std::io::ErrorKind::NotFound => anyhow!(
+                    "Git isn't installed, or it isn't on your PATH. Install Git, then try again."
+                ),
+                _ => anyhow!("Couldn't run Git: {e}"),
+            })?;
+
+        let stderr = child.stderr.take();
+        let label = label.to_string();
+        let width = self.ui.width().clamp(30, 100);
+        let progress = stderr.map(|pipe| thread::spawn(move || pump(pipe, &label, width)));
+
+        let mut stdout = String::new();
+        if let Some(mut pipe) = child.stdout.take() {
+            let _ = pipe.read_to_string(&mut stdout);
+        }
+        let status = child.wait()?;
+        let stderr = progress
+            .and_then(|handle| handle.join().ok())
+            .unwrap_or_default();
+        Ok(GitOutput {
+            stdout,
+            stderr,
+            code: status.code(),
+            command,
+        })
+    }
+
     /// Run git with extra environment variables (used for private temp indexes).
     pub fn run_env(&self, args: &[&str], envs: &[(&str, &std::ffi::OsStr)]) -> Result<GitOutput> {
         let command = render(args);
@@ -171,6 +220,54 @@ impl Git {
     pub fn branch_name(&self) -> Option<String> {
         self.probe(&["symbolic-ref", "--quiet", "--short", "HEAD"])
     }
+}
+
+/// Relay Git's carriage-return progress to a single line, and collect the
+/// newline-terminated output for error reporting.
+fn pump(mut pipe: ChildStderr, label: &str, width: usize) -> String {
+    let mut captured = String::new();
+    let mut pending: Vec<u8> = Vec::new();
+    let mut shown = false;
+    let mut last_width = 0usize;
+    let mut chunk = [0u8; 4096];
+    loop {
+        let n = match pipe.read(&mut chunk) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => n,
+        };
+        for &byte in &chunk[..n] {
+            if byte == b'\r' || byte == b'\n' {
+                let segment = String::from_utf8_lossy(&pending).trim().to_string();
+                pending.clear();
+                if byte == b'\n' && !segment.is_empty() {
+                    captured.push_str(&segment);
+                    captured.push('\n');
+                }
+                if !segment.is_empty() {
+                    let room = width.saturating_sub(label.chars().count() + 6).max(12);
+                    let text = crate::util::truncate_chars(&segment, room);
+                    let used = 2 + label.chars().count() + 3 + text.chars().count();
+                    let pad = last_width.saturating_sub(used);
+                    eprint!("\r  {label} · {text}{}", " ".repeat(pad));
+                    let _ = io::stderr().flush();
+                    last_width = used;
+                    shown = true;
+                }
+            } else {
+                pending.push(byte);
+            }
+        }
+    }
+    let tail = String::from_utf8_lossy(&pending).trim().to_string();
+    if !tail.is_empty() {
+        captured.push_str(&tail);
+        captured.push('\n');
+    }
+    if shown {
+        eprint!("\r{}\r", " ".repeat(last_width));
+        let _ = io::stderr().flush();
+    }
+    captured
 }
 
 pub fn render(args: &[&str]) -> String {

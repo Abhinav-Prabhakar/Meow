@@ -25,7 +25,7 @@ pub fn display_path(path: &Path) -> String {
             if rest.as_os_str().is_empty() {
                 return "~".to_string();
             }
-            return format!("~/{}", rest.display());
+            return format!("~{}{}", std::path::MAIN_SEPARATOR, rest.display());
         }
     }
     path.display().to_string()
@@ -195,14 +195,39 @@ pub fn is_binary(path: &Path) -> bool {
     buf[..n].contains(&0)
 }
 
+/// Split a configured command such as `code --wait` or a quoted executable
+/// path. Quotes group words; backslashes are left alone for Windows paths.
+pub fn split_command(input: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut quote: Option<char> = None;
+    for ch in input.chars() {
+        match quote {
+            Some(q) if ch == q => quote = None,
+            Some(_) => current.push(ch),
+            None if ch == '"' || ch == '\'' => quote = Some(ch),
+            None if ch.is_whitespace() => {
+                if !current.is_empty() {
+                    out.push(std::mem::take(&mut current));
+                }
+            }
+            None => current.push(ch),
+        }
+    }
+    if !current.is_empty() {
+        out.push(current);
+    }
+    out
+}
+
 pub fn open_editor(ui: &Ui, path: &Path) -> Result<()> {
     let config = crate::config::Config::load();
     let editor = config.editor();
-    let mut parts = editor.split_whitespace();
+    let mut parts = split_command(&editor).into_iter();
     let Some(bin) = parts.next() else {
         return Ok(());
     };
-    let status = Command::new(bin)
+    let status = Command::new(&bin)
         .args(parts)
         .arg(path)
         .status()
@@ -251,4 +276,19 @@ pub fn truncate_chars(s: &str, max: usize) -> String {
     let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
     out.push('…');
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_command;
+
+    #[test]
+    fn commands_split_on_whitespace_and_quotes() {
+        assert_eq!(split_command("code --wait"), vec!["code", "--wait"]);
+        assert_eq!(
+            split_command("\"C:\\Program Files\\Code.exe\" --wait"),
+            vec!["C:\\Program Files\\Code.exe", "--wait"]
+        );
+        assert!(split_command("   ").is_empty());
+    }
 }

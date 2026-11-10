@@ -104,11 +104,12 @@ fn run(cli: &Cli, ui: &Ui) -> Result<i32> {
         Command::Cancel => commands::cancel::run(ui),
         Command::Discard { paths, all } => commands::discard::run(ui, paths, *all),
         Command::Ignore { path, list } => commands::ignore::run(ui, path.as_deref(), *list),
-        Command::Recover { purge } => commands::recover::run(ui, *purge),
+        Command::Recover { item, purge } => commands::recover::run(ui, *item, *purge),
         Command::Doctor { fix, report } => commands::doctor::run(ui, *fix, *report),
         Command::Help { command, git } => commands::help::run(ui, command.as_deref(), *git),
         Command::Learn => commands::learn::run(ui),
         Command::Version { verbose } => commands::version::run(ui, *verbose),
+        Command::Completions { shell } => commands::completions::run(ui, *shell),
     }
 }
 
