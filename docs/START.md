@@ -4,12 +4,33 @@ Meow saves your work, puts it online, and helps you get it back. You do not need
 
 ## 1. Install
 
-You need **Git 2.30+** and **Rust 1.74+**.
+You need **Git 2.30+**. Rust is only needed if you build from source.
+
+```sh
+# macOS or Linux
+brew install Abhinav-Prabhakar/tap/meow
+
+# Windows
+winget install AbhinavPrabhakar.Meow
+```
+
+Or with Cargo, on any platform:
+
+```sh
+cargo install meow-git
+```
+
+Or build from source:
 
 ```sh
 git clone https://github.com/Abhinav-Prabhakar/Meow.git
 cd Meow
 cargo install --path .
+```
+
+Check what you got:
+
+```sh
 meow version
 ```
 

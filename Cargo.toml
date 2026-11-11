@@ -1,14 +1,28 @@
 [package]
-name = "meow-cli"
-version = "0.1.0"
+name = "meow-git"
+version = "1.0.0"
 edition = "2021"
 rust-version = "1.74"
 description = "Git, without the growl. A beginner-first Git CLI."
 license = "MIT"
+authors = ["Abhinav Prabhakar"]
 repository = "https://github.com/Abhinav-Prabhakar/Meow"
+homepage = "https://github.com/Abhinav-Prabhakar/Meow"
+documentation = "https://github.com/Abhinav-Prabhakar/Meow#readme"
 readme = "README.md"
 keywords = ["git", "cli", "beginner", "vcs"]
 categories = ["command-line-utilities", "development-tools"]
+exclude = ["PLAN.md", "task.md", "progress.md", ".github/", "docs/", "dist-workspace.toml", "wix/"]
+
+[package.metadata.dist]
+# Homebrew formula name: `brew install Abhinav-Prabhakar/tap/meow`
+formula = "meow"
+
+[package.metadata.wix]
+upgrade-guid = "49129201-A884-4644-88EC-8ECFF0F06AD6"
+path-guid = "A5B6C888-B540-43BD-9B80-6DED03892B1C"
+license = false
+eula = false
 
 [[bin]]
 name = "meow"
@@ -37,3 +51,8 @@ tempfile = "3"
 lto = true
 codegen-units = 1
 strip = true
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

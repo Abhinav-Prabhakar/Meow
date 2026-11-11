@@ -472,7 +472,7 @@ fn doctor_and_version_run_anywhere() {
         .arg("version")
         .assert()
         .success()
-        .stdout(predicate::str::contains("meow 0.1.0"))
+        .stdout(predicate::str::contains("meow 1.0.0"))
         .stdout(predicate::str::contains("git "));
 }
 

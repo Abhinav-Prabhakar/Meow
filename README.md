@@ -41,6 +41,49 @@ Meow keeps the power and removes the decisions:
 
 Meow needs **Git 2.30 or newer** on your `PATH`. Everything else is optional. `meow doctor` checks your setup and tells you exactly what is missing.
 
+### Homebrew — macOS and Linux
+
+```sh
+brew install Abhinav-Prabhakar/tap/meow
+```
+
+### Windows
+
+```powershell
+winget install AbhinavPrabhakar.Meow
+```
+
+Or with Scoop:
+
+```powershell
+scoop bucket add meow https://github.com/Abhinav-Prabhakar/scoop-meow
+scoop install meow
+```
+
+Each release also includes an MSI, plus a portable `.zip` you can unpack anywhere.
+
+### Cargo — any platform with Rust
+
+```sh
+cargo install meow-git
+```
+
+The package is named `meow-git`; the binary it installs is `meow`.
+
+### Installer script
+
+macOS and Linux:
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/Abhinav-Prabhakar/Meow/releases/latest/download/meow-git-installer.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/Abhinav-Prabhakar/Meow/releases/latest/download/meow-git-installer.ps1 | iex"
+```
+
 ### From source
 
 ```sh
@@ -49,15 +92,11 @@ cd Meow
 cargo install --path .
 ```
 
-The package is named `meow-cli`; the binary it installs is `meow`.
+### Direct downloads
 
-```sh
-meow version
-```
+Prebuilt archives for macOS (Intel and Apple silicon), Linux (x86_64 and arm64), and Windows are on the [Releases page](https://github.com/Abhinav-Prabhakar/Meow/releases). Every archive has a SHA-256 checksum.
 
-### Package managers
-
-Homebrew, `winget`, Scoop, and prebuilt signed installers are planned. Until they ship, use the source install above. Meow has **no self-updater** — upgrade the way you installed it.
+Upgrade with the package manager you installed with. Meow has **no self-updater**.
 
 ### Shell completions
 
