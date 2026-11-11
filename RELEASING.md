@@ -52,8 +52,7 @@ rejected with a 400 error even when the token is valid.
 
 Update `bucket/meow.json` in `Abhinav-Prabhakar/ScoopBucket` with the new
 `version`, the Windows zip URL, and its SHA-256. The manifest's `checkver`
-and `autoupdate` handle later versions automatically. The old
-`Abhinav-Prabhakar/scoop-meow` bucket stays online as a legacy alias.
+and `autoupdate` handle later versions automatically.
 
 ## winget
 
