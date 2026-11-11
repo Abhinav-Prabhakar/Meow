@@ -57,7 +57,7 @@ winget install AbhinavPrabhakar.Meow
 Or with Scoop:
 
 ```powershell
-scoop bucket add meow https://github.com/Abhinav-Prabhakar/scoop-meow
+scoop bucket add abhinav https://github.com/Abhinav-Prabhakar/ScoopBucket
 scoop install meow
 ```
 
