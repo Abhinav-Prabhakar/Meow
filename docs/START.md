@@ -10,7 +10,7 @@ You need **Git 2.30+**. Rust is only needed if you build from source.
 # macOS or Linux
 brew install Abhinav-Prabhakar/tap/meow
 
-# Windows
+# Windows (winget package in review)
 winget install AbhinavPrabhakar.Meow
 ```
 

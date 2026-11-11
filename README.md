@@ -50,6 +50,7 @@ brew install Abhinav-Prabhakar/tap/meow
 ### Windows
 
 ```powershell
+# The winget package is in review; Scoop and the MSI below work today.
 winget install AbhinavPrabhakar.Meow
 ```
 

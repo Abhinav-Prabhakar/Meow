@@ -34,7 +34,7 @@ The Release workflow builds and uploads:
 - the shell and PowerShell installers;
 - checksums for every archive;
 - the Homebrew formula, committed to `Abhinav-Prabhakar/homebrew-tap`
-  using the `HOMEBREW_TAP_TOKEN` secret.
+  using the `HOMEBREW_TAP_TOKEN` secret (a token with `repo` scope).
 
 Watch it with `gh run watch`.
 
@@ -44,6 +44,9 @@ Watch it with `gh run watch`.
 cargo login        # once per machine
 cargo publish
 ```
+
+The crates.io account must have a verified email address, or the upload is
+rejected with a 400 error even when the token is valid.
 
 ## Scoop
 
