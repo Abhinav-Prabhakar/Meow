@@ -56,6 +56,15 @@ and `autoupdate` handle later versions automatically.
 
 ## winget
 
-Generate the version, installer, and locale manifests under
-`packaging/winget/` from the MSI URL and hash, then open a PR against
-`microsoft/winget-pkgs`. The Microsoft CLA must be signed before it can merge.
+The manifests under `packaging/winget/` install the portable Windows zip, not
+the MSI, so `meow` lands on `PATH` as a command:
+
+- `AbhinavPrabhakar.Meow.yaml` — package identifier and version;
+- `AbhinavPrabhakar.Meow.installer.yaml` — the x64 zip URL and SHA-256, with
+  `NestedInstallerType: portable` and `PortableCommandAlias: meow`;
+- `AbhinavPrabhakar.Meow.locale.en-US.yaml` — the store listing.
+
+For a new version, copy the directory to `manifests/a/AbhinavPrabhakar/Meow/X.Y.Z/`
+in a fork of `microsoft/winget-pkgs`, bump the version, URL, hash, and release
+date, then open a PR. The Microsoft CLA has to be signed once per account by
+commenting `@microsoft-github-policy-service agree` on the first PR.
